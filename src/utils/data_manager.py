@@ -80,11 +80,24 @@ class DataManager:
         self._save_json(self.templates_file, default_data)
     
     def _load_json(self, file_path: Path) -> Dict:
-        """JSON 파일 로드"""
+        """JSON 파일 로드 (보안 검증 포함)"""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
+            if file_path.exists():
+                # 파일 크기 검증 (10MB 제한)
+                file_size = file_path.stat().st_size
+                if file_size > 10 * 1024 * 1024:  # 10MB
+                    raise ValueError(f"파일이 너무 큽니다: {file_size} bytes")
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    
+                # 데이터 구조 검증
+                if not isinstance(data, dict):
+                    raise ValueError("잘못된 JSON 구조입니다.")
+                    
+                return data
+            return {}
+        except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
             print(f"JSON 파일 로드 오류 ({file_path}): {e}")
             return {}
     

@@ -259,6 +259,11 @@ class MainWindow:
         # 실행 상태
         self.execution_status = ttk.Label(self.status_bar, text="실행 중지됨")
         self.execution_status.pack(side=tk.RIGHT, padx=5)
+        
+        # 저작권 표시
+        self.copyright_label = ttk.Label(self.status_bar, text="© 2025 Photometry4040", 
+                                        font=('Arial', 8), foreground='gray')
+        self.copyright_label.pack(side=tk.RIGHT, padx=10)
     
     def _apply_theme(self):
         """테마 적용"""
@@ -826,7 +831,10 @@ class MainWindow:
         JSON 기반 데이터 저장
         단일 .exe 파일 배포 가능
         
-        개발: ActionFlow Team
+        제작자: Photometry4040
+        © 2025 Photometry4040. All rights reserved.
+        
+        배포 시 반드시 저작권 표시를 명기해주세요.
         """
         messagebox.showinfo("정보", about_text)
     
