@@ -1,0 +1,15 @@
+{
+  "execution_speed": "normal",
+  "default_delay": 0.5,
+  "safety_failsafe": true,
+  "theme": "light",
+  "language": "ko",
+  "window_width": 1200,
+  "window_height": 800,
+  "auto_save": true,
+  "auto_backup": true,
+  "backup_interval": 7,
+  "enable_logging": true,
+  "log_level": "INFO",
+  "max_history": 100
+}
