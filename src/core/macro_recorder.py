@@ -5,7 +5,6 @@
 import time
 import threading
 from typing import List, Dict, Optional, Callable
-import pyautogui
 from pynput import mouse, keyboard
 
 from ..utils.data_manager import DataManager
@@ -358,7 +357,9 @@ class MacroRecorder:
             }
             
             # 프로젝트 저장
-            self.data_manager.save_project_data(project_data)
+            from ..models.project import Project
+            project = Project.from_dict(project_data)
+            self.data_manager.save_project(project)
             
             return project_id
             
