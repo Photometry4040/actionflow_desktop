@@ -283,6 +283,26 @@ class MacroRecorder:
         # 액션 순서 인덱스 추가
         action['order_index'] = len(self.recorded_actions) + 1
         
+        # 이전 액션과의 시간 간격 계산
+        if self.recorded_actions:
+            prev_timestamp = self.recorded_actions[-1].get('timestamp', 0)
+            current_timestamp = action.get('timestamp', 0)
+            time_interval = current_timestamp - prev_timestamp
+            
+            # 시간 간격이 일정 값 이상이면 지연 액션 추가
+            if time_interval > 0.5:  # 0.5초 이상 간격이면 지연 액션 추가
+                delay_action = {
+                    'action_type': 'delay',
+                    'description': f'지연 {time_interval:.2f}초',
+                    'parameters': {
+                        'seconds': time_interval
+                    },
+                    'timestamp': prev_timestamp + time_interval / 2,
+                    'order_index': len(self.recorded_actions) + 1
+                }
+                self.recorded_actions.append(delay_action)
+                action['order_index'] = len(self.recorded_actions) + 1
+        
         self.recorded_actions.append(action)
         
         # 콜백 호출

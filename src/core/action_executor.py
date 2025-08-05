@@ -112,6 +112,8 @@ class ActionExecutor:
             # 완료 콜백 호출
             if not self.should_stop:
                 self._call_callback(self.on_complete_callback, True, "모든 액션이 성공적으로 실행되었습니다.")
+            else:
+                self._call_callback(self.on_complete_callback, False, "실행이 중단되었습니다.")
                 
         except Exception as e:
             error_msg = f"실행 중 오류 발생: {str(e)}"
@@ -120,6 +122,7 @@ class ActionExecutor:
             self.is_running = False
             self.is_paused = False
             self.should_stop = False
+            self.current_action_index = 0
     
     def _execute_action(self, action: Dict) -> bool:
         """

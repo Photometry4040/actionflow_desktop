@@ -104,6 +104,7 @@ class MainWindow:
         self.run_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.menu_bar.add_cascade(label="실행", menu=self.run_menu)
         self.run_menu.add_command(label="프로젝트 실행", command=self._run_project, accelerator="F5")
+        self.run_menu.add_command(label="디버그 모드", command=self._debug_project, accelerator="F8")
         self.run_menu.add_command(label="선택된 액션 실행", command=self._run_selected_action, accelerator="F6")
         self.run_menu.add_separator()
         self.run_menu.add_command(label="실행 중지", command=self._stop_execution, accelerator="Esc")
@@ -150,6 +151,9 @@ class MainWindow:
         # 실행 관련 버튼
         self.run_button = ttk.Button(self.toolbar, text="실행", command=self._run_project)
         self.run_button.pack(side=tk.LEFT, padx=2)
+        
+        self.debug_button = ttk.Button(self.toolbar, text="디버그", command=self._debug_project)
+        self.debug_button.pack(side=tk.LEFT, padx=2)
         
         self.stop_button = ttk.Button(self.toolbar, text="중지", command=self._stop_execution)
         self.stop_button.pack(side=tk.LEFT, padx=2)
@@ -289,6 +293,7 @@ class MainWindow:
         self.root.bind('<Control-s>', lambda e: self._save_project())
         self.root.bind('<Control-q>', lambda e: self._quit_app())
         self.root.bind('<F5>', lambda e: self._run_project())
+        self.root.bind('<F8>', lambda e: self._debug_project())
         self.root.bind('<Escape>', lambda e: self._stop_execution())
         
         # 트리뷰 이벤트
@@ -464,6 +469,189 @@ class MainWindow:
                     else:
                         messagebox.showerror("실행 실패", f"액션 '{action.get('description', '')}' 실행에 실패했습니다.")
                 break
+    
+    def _debug_project(self):
+        """프로젝트 디버그 모드 실행"""
+        if not self.current_project:
+            messagebox.showinfo("알림", "디버그할 프로젝트를 선택해주세요.")
+            return
+        
+        if not self.current_project.actions:
+            messagebox.showinfo("알림", "디버그할 액션이 없습니다.")
+            return
+        
+        # 디버그 모드 시작
+        self._start_debug_mode()
+    
+    def _start_debug_mode(self):
+        """디버그 모드 시작"""
+        # 디버그 윈도우 생성
+        debug_window = tk.Toplevel(self.root)
+        debug_window.title(f"디버그 모드 - {self.current_project.name}")
+        debug_window.geometry("800x600")
+        debug_window.transient(self.root)
+        debug_window.grab_set()
+        
+        # 메인 프레임
+        main_frame = ttk.Frame(debug_window, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 액션 목록 프레임
+        action_frame = ttk.LabelFrame(main_frame, text="액션 목록")
+        action_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # 액션 트리뷰
+        action_tree = ttk.Treeview(action_frame, columns=("order", "type", "description", "status"), show="headings")
+        action_tree.heading("order", text="순서")
+        action_tree.heading("type", text="타입")
+        action_tree.heading("description", text="설명")
+        action_tree.heading("status", text="상태")
+        action_tree.column("order", width=50)
+        action_tree.column("type", width=100)
+        action_tree.column("description", width=400)
+        action_tree.column("status", width=100)
+        action_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        # 액션 목록에 추가
+        actions = sorted(self.current_project.actions, key=lambda x: x.get('order_index', 0))
+        for action in actions:
+            action_tree.insert("", "end", values=(
+                action.get('order_index', 0),
+                action.get('action_type', ''),
+                action.get('description', ''),
+                "대기"
+            ), tags=(f"action_{action.get('id', 0)}",))
+        
+        # 현재 실행 중인 액션 인덱스
+        current_action_index = 0
+        
+        # 버튼 프레임
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        def step_next():
+            """다음 액션 실행"""
+            nonlocal current_action_index
+            if current_action_index < len(actions):
+                # 현재 액션 실행
+                action = actions[current_action_index]
+                
+                # 상태 업데이트
+                for item in action_tree.get_children():
+                    if action_tree.item(item, "tags")[0] == f"action_{action.get('id', 0)}":
+                        action_tree.set(item, "status", "실행 중...")
+                        action_tree.selection_set(item)
+                        action_tree.see(item)
+                        break
+                
+                # 액션 실행
+                success = self.action_executor.execute_single_action(action)
+                
+                # 상태 업데이트
+                for item in action_tree.get_children():
+                    if action_tree.item(item, "tags")[0] == f"action_{action.get('id', 0)}":
+                        status = "성공" if success else "실패"
+                        action_tree.set(item, "status", status)
+                        break
+                
+                current_action_index += 1
+                
+                # 다음 액션 선택
+                if current_action_index < len(actions):
+                    next_action = actions[current_action_index]
+                    for item in action_tree.get_children():
+                        if action_tree.item(item, "tags")[0] == f"action_{next_action.get('id', 0)}":
+                            action_tree.selection_set(item)
+                            action_tree.see(item)
+                            break
+                else:
+                    messagebox.showinfo("디버그 완료", "모든 액션의 디버그가 완료되었습니다.")
+        
+        def step_prev():
+            """이전 액션으로 돌아가기"""
+            nonlocal current_action_index
+            if current_action_index > 0:
+                current_action_index -= 1
+                
+                # 이전 액션 선택
+                prev_action = actions[current_action_index]
+                for item in action_tree.get_children():
+                    if action_tree.item(item, "tags")[0] == f"action_{prev_action.get('id', 0)}":
+                        action_tree.selection_set(item)
+                        action_tree.see(item)
+                        break
+        
+        def run_to_cursor():
+            """커서 위치까지 실행"""
+            selection = action_tree.selection()
+            if not selection:
+                messagebox.showwarning("경고", "실행할 액션을 선택해주세요.")
+                return
+            
+            item = selection[0]
+            tags = action_tree.item(item, "tags")
+            
+            for tag in tags:
+                if tag.startswith("action_"):
+                    target_action_id = int(tag.split("_")[1])
+                    
+                    # 현재 인덱스부터 목표 액션까지 실행
+                    while current_action_index < len(actions):
+                        action = actions[current_action_index]
+                        if action.get('id') == target_action_id:
+                            break
+                        
+                        # 액션 실행
+                        success = self.action_executor.execute_single_action(action)
+                        
+                        # 상태 업데이트
+                        for tree_item in action_tree.get_children():
+                            if action_tree.item(tree_item, "tags")[0] == f"action_{action.get('id', 0)}":
+                                status = "성공" if success else "실패"
+                                action_tree.set(tree_item, "status", status)
+                                break
+                        
+                        current_action_index += 1
+                    
+                    break
+        
+        def reset_debug():
+            """디버그 상태 초기화"""
+            nonlocal current_action_index
+            current_action_index = 0
+            
+            # 모든 액션 상태 초기화
+            for item in action_tree.get_children():
+                action_tree.set(item, "status", "대기")
+            
+            # 첫 번째 액션 선택
+            if actions:
+                first_action = actions[0]
+                for item in action_tree.get_children():
+                    if action_tree.item(item, "tags")[0] == f"action_{first_action.get('id', 0)}":
+                        action_tree.selection_set(item)
+                        action_tree.see(item)
+                        break
+        
+        def close_debug():
+            """디버그 윈도우 닫기"""
+            debug_window.destroy()
+        
+        # 버튼들
+        ttk.Button(button_frame, text="다음 단계", command=step_next).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="이전 단계", command=step_prev).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="커서까지 실행", command=run_to_cursor).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="초기화", command=reset_debug).pack(side=tk.LEFT, padx=2)
+        ttk.Button(button_frame, text="닫기", command=close_debug).pack(side=tk.RIGHT, padx=2)
+        
+        # 첫 번째 액션 선택
+        if actions:
+            first_action = actions[0]
+            for item in action_tree.get_children():
+                if action_tree.item(item, "tags")[0] == f"action_{first_action.get('id', 0)}":
+                    action_tree.selection_set(item)
+                    action_tree.see(item)
+                    break
     
     def _stop_execution(self):
         """실행 중지"""
@@ -816,6 +1004,7 @@ class MainWindow:
         Ctrl+S: 프로젝트 저장
         Ctrl+Q: 종료
         F5: 프로젝트 실행
+        F8: 디버그 모드
         Esc: 실행 중지
         """
         messagebox.showinfo("단축키", shortcuts)
@@ -1180,6 +1369,10 @@ class MainWindow:
         # 실행 버튼
         if hasattr(self, 'run_button'):
             self.run_button.config(state='disabled' if is_running else 'normal')
+        
+        # 디버그 버튼
+        if hasattr(self, 'debug_button'):
+            self.debug_button.config(state='disabled' if is_running else 'normal')
         
         # 중지 버튼
         if hasattr(self, 'stop_button'):
