@@ -7,6 +7,7 @@ import threading
 from typing import Dict, List, Optional, Callable
 import pyautogui
 import pyperclip
+from pynput import keyboard
 
 from ..models.project import Project
 from ..utils.config import config
@@ -196,7 +197,84 @@ class ActionExecutor:
             text = parameters.get('text', '')
             interval = parameters.get('interval', 0.1)
             
-            pyautogui.write(text, interval=interval)
+            # 텍스트가 비어있지 않은지 확인
+            if not text:
+                print("키보드 입력 오류: 입력할 텍스트가 없습니다.")
+                return False
+            
+            # 방법 1: 클립보드를 통한 입력 (가장 안정적)
+            try:
+                # 현재 클립보드 내용 저장
+                original_clipboard = pyperclip.paste()
+                
+                # 텍스트를 클립보드에 복사
+                pyperclip.copy(text)
+                time.sleep(0.1)
+                
+                # Ctrl+V로 붙여넣기 (fail-safe 방지를 위해 안전한 방법 사용)
+                try:
+                    pyautogui.hotkey('ctrl', 'v')
+                except:
+                    # fail-safe 발생 시 pynput 사용
+                    controller = keyboard.Controller()
+                    controller.press(keyboard.Key.ctrl)
+                    controller.press('v')
+                    controller.release('v')
+                    controller.release(keyboard.Key.ctrl)
+                
+                time.sleep(interval)
+                
+                # 원래 클립보드 내용 복원
+                pyperclip.copy(original_clipboard)
+                
+                return True
+            except Exception as clipboard_error:
+                print(f"클립보드 방식 실패, 직접 입력으로 대체: {str(clipboard_error)}")
+                
+                # 방법 2: pynput을 사용한 직접 입력
+                try:
+                    controller = keyboard.Controller()
+                    for char in text:
+                        try:
+                            controller.type(char)
+                            time.sleep(interval)
+                        except Exception as char_error:
+                            print(f"문자 '{char}' 입력 오류: {str(char_error)}")
+                            # 특수 문자의 경우 pyautogui로 대체
+                            try:
+                                pyautogui.press(char)
+                                time.sleep(interval)
+                            except:
+                                print(f"문자 '{char}'를 입력할 수 없습니다.")
+                                continue
+                except Exception as pynput_error:
+                    print(f"pynput 오류, pyautogui로 대체: {str(pynput_error)}")
+                    
+                    # 방법 3: pyautogui로 대체 (fail-safe 비활성화)
+                    try:
+                        # 임시로 fail-safe 비활성화
+                        original_failsafe = pyautogui.FAILSAFE
+                        pyautogui.FAILSAFE = False
+                        
+                        for char in text:
+                            try:
+                                pyautogui.write(char, interval=0)
+                                time.sleep(interval)
+                            except Exception as char_error:
+                                print(f"문자 '{char}' 입력 오류: {str(char_error)}")
+                                try:
+                                    pyautogui.press(char)
+                                    time.sleep(interval)
+                                except:
+                                    print(f"문자 '{char}'를 입력할 수 없습니다.")
+                                    continue
+                        
+                        # fail-safe 복원
+                        pyautogui.FAILSAFE = original_failsafe
+                    except Exception as e:
+                        print(f"pyautogui 방식도 실패: {str(e)}")
+                        return False
+            
             return True
         except Exception as e:
             print(f"키보드 입력 오류: {str(e)}")

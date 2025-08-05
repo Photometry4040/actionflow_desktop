@@ -211,12 +211,22 @@ class ActionDialog:
         self.param_widgets['text'] = tk.Text(self.param_frame, height=4, width=40)
         self.param_widgets['text'].grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=5)
         
+        # 스크롤바 추가
+        text_scrollbar = ttk.Scrollbar(self.param_frame, orient="vertical", command=self.param_widgets['text'].yview)
+        text_scrollbar.grid(row=0, column=2, sticky=(tk.N, tk.S), pady=5)
+        self.param_widgets['text'].configure(yscrollcommand=text_scrollbar.set)
+        
         # 입력 속도
         ttk.Label(self.param_frame, text="입력 속도:").grid(row=1, column=0, sticky=tk.W, pady=5)
         self.param_widgets['interval'] = ttk.Entry(self.param_frame, width=10)
         self.param_widgets['interval'].insert(0, "0.1")
         self.param_widgets['interval'].grid(row=1, column=1, sticky=tk.W, padx=(10, 0), pady=5)
-        ttk.Label(self.param_frame, text="초").grid(row=1, column=2, sticky=tk.W, padx=(5, 0), pady=5)
+        ttk.Label(self.param_frame, text="초").grid(row=1, column=3, sticky=tk.W, padx=(5, 0), pady=5)
+        
+        # 도움말 텍스트
+        help_text = "특수 문자나 숫자 조합도 입력 가능합니다. (예: G05, ABC123)"
+        ttk.Label(self.param_frame, text=help_text, 
+                 font=("", 9), foreground="gray").grid(row=2, column=1, sticky=tk.W, padx=(10, 0), pady=2)
     
     def _create_delay_widgets(self):
         """지연 시간 파라미터 위젯"""
@@ -408,31 +418,62 @@ class ActionDialog:
         """파라미터 검증"""
         try:
             if action_type == "마우스 이동":
-                x = int(self.param_widgets['x'].get())
-                y = int(self.param_widgets['y'].get())
-                duration = float(self.param_widgets['duration'].get())
-                if duration < 0:
-                    raise ValueError("이동 시간은 0 이상이어야 합니다.")
+                try:
+                    x = int(self.param_widgets['x'].get())
+                    y = int(self.param_widgets['y'].get())
+                    duration = float(self.param_widgets['duration'].get())
+                    if duration < 0:
+                        raise ValueError("이동 시간은 0 이상이어야 합니다.")
+                except ValueError as e:
+                    if "duration" in str(e):
+                        raise ValueError("이동 시간은 숫자로 입력해주세요.")
+                    else:
+                        raise ValueError("좌표는 숫자로 입력해주세요.")
                 
             elif action_type == "마우스 클릭":
-                x = int(self.param_widgets['x'].get())
-                y = int(self.param_widgets['y'].get())
-                clicks = int(self.param_widgets['clicks'].get())
-                if clicks < 1:
-                    raise ValueError("클릭 횟수는 1 이상이어야 합니다.")
+                try:
+                    x = int(self.param_widgets['x'].get())
+                    y = int(self.param_widgets['y'].get())
+                    clicks = int(self.param_widgets['clicks'].get())
+                    if clicks < 1:
+                        raise ValueError("클릭 횟수는 1 이상이어야 합니다.")
+                except ValueError:
+                    raise ValueError("좌표와 클릭 횟수는 숫자로 입력해주세요.")
                 
             elif action_type == "키보드 입력":
-                text = self.param_widgets['text'].get(1.0, tk.END).strip()
-                if not text:
-                    raise ValueError("입력할 텍스트를 입력해주세요.")
-                interval = float(self.param_widgets['interval'].get())
-                if interval < 0:
-                    raise ValueError("입력 속도는 0 이상이어야 합니다.")
+                try:
+                    text = self.param_widgets['text'].get(1.0, tk.END).strip()
+                    if not text:
+                        raise ValueError("입력할 텍스트를 입력해주세요.")
+                    
+                    # 텍스트 길이 검증 (너무 긴 텍스트 방지)
+                    if len(text) > 1000:
+                        raise ValueError("입력할 텍스트는 1000자 이하여야 합니다.")
+                    
+                    # 입력 속도 검증
+                    try:
+                        interval = float(self.param_widgets['interval'].get())
+                        if interval < 0:
+                            raise ValueError("입력 속도는 0 이상이어야 합니다.")
+                        if interval > 10:
+                            raise ValueError("입력 속도는 10초 이하여야 합니다.")
+                    except ValueError:
+                        raise ValueError("입력 속도는 숫자로 입력해주세요.")
+                except Exception as e:
+                    if "text" in str(e):
+                        raise ValueError("텍스트 입력에 문제가 있습니다.")
+                    else:
+                        raise e
                 
             elif action_type == "지연 시간":
-                seconds = float(self.param_widgets['seconds'].get())
-                if seconds < 0:
-                    raise ValueError("지연 시간은 0 이상이어야 합니다.")
+                try:
+                    seconds = float(self.param_widgets['seconds'].get())
+                    if seconds < 0:
+                        raise ValueError("지연 시간은 0 이상이어야 합니다.")
+                    if seconds > 3600:  # 1시간 제한
+                        raise ValueError("지연 시간은 1시간(3600초) 이하여야 합니다.")
+                except ValueError:
+                    raise ValueError("지연 시간은 숫자로 입력해주세요.")
                 
             elif action_type == "복사":
                 text = self.param_widgets['text'].get(1.0, tk.END).strip()
