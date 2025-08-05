@@ -1164,7 +1164,7 @@ class MainWindow:
         # UI 업데이트
         self.root.update_idletasks()
     
-    def _on_recording_stopped(self):
+    def _on_recording_stopped(self, recorded_actions: List[Dict]):
         """녹화 중지 콜백"""
         # 상태바 초기화
         self.status_label.config(text="녹화 완료")
