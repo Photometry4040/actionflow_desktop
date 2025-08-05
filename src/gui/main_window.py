@@ -437,6 +437,8 @@ class MainWindow:
                 # UI 업데이트
                 self._update_execution_buttons()
                 messagebox.showinfo("실행 시작", "프로젝트 실행이 시작되었습니다.")
+                # 메시지 확인 후 버튼 상태 재확인
+                self._update_execution_buttons()
             else:
                 messagebox.showerror("오류", "이미 실행 중입니다.")
     
@@ -1306,6 +1308,11 @@ class MainWindow:
     # 실행 콜백 메서드들
     def _on_execution_progress(self, current_action: int, total_actions: int, action_description: str):
         """실행 진행 상황 콜백"""
+        # 메인 스레드에서 UI 업데이트 실행
+        self.root.after(0, self._handle_execution_progress, current_action, total_actions, action_description)
+    
+    def _handle_execution_progress(self, current_action: int, total_actions: int, action_description: str):
+        """실행 진행 상황 처리 (메인 스레드)"""
         # 상태바 업데이트
         progress_text = f"실행 중... ({current_action}/{total_actions}) {action_description}"
         self.status_label.config(text=progress_text)
@@ -1319,30 +1326,40 @@ class MainWindow:
     
     def _on_execution_complete(self, success: bool, message: str):
         """실행 완료 콜백"""
+        # 메인 스레드에서 UI 업데이트 실행
+        self.root.after(0, self._handle_execution_complete, success, message)
+    
+    def _handle_execution_complete(self, success: bool, message: str):
+        """실행 완료 처리 (메인 스레드)"""
         # 상태바 초기화
         self.status_label.config(text="준비")
         self.progress_bar['value'] = 0
-        
-        # 실행 버튼 상태 업데이트
-        self._update_execution_buttons()
         
         # 완료 메시지 표시
         if success:
             messagebox.showinfo("실행 완료", f"프로젝트 실행이 완료되었습니다.\n\n{message}")
         else:
             messagebox.showerror("실행 실패", f"프로젝트 실행에 실패했습니다.\n\n{message}")
+        
+        # 메시지 확인 후 실행 버튼 상태 업데이트
+        self._update_execution_buttons()
     
     def _on_execution_error(self, error_message: str):
         """실행 오류 콜백"""
+        # 메인 스레드에서 UI 업데이트 실행
+        self.root.after(0, self._handle_execution_error, error_message)
+    
+    def _handle_execution_error(self, error_message: str):
+        """실행 오류 처리 (메인 스레드)"""
         # 상태바 초기화
         self.status_label.config(text="오류 발생")
         self.progress_bar['value'] = 0
         
-        # 실행 버튼 상태 업데이트
-        self._update_execution_buttons()
-        
         # 오류 메시지 표시
         messagebox.showerror("실행 오류", f"실행 중 오류가 발생했습니다:\n\n{error_message}")
+        
+        # 메시지 확인 후 실행 버튼 상태 업데이트
+        self._update_execution_buttons()
     
     def _on_action_recorded(self, action: Dict):
         """액션 녹화 콜백"""
