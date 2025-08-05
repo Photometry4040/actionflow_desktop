@@ -134,4 +134,28 @@ class Project:
         """액션들의 order_index를 순서대로 재정렬"""
         for i, action in enumerate(self.actions):
             action['order_index'] = i + 1
-        self.update_timestamp() 
+        self.update_timestamp()
+    
+    def update_action(self, action_id: int, updated_action: Dict) -> bool:
+        """
+        액션 업데이트
+        
+        Args:
+            action_id: 업데이트할 액션 ID
+            updated_action: 업데이트된 액션 데이터
+        
+        Returns:
+            성공 여부
+        """
+        for i, action in enumerate(self.actions):
+            if action.get('id') == action_id:
+                # 기존 ID와 order_index 유지
+                updated_action['id'] = action_id
+                updated_action['order_index'] = action.get('order_index', i + 1)
+                
+                # 액션 업데이트
+                self.actions[i] = updated_action
+                self.update_timestamp()
+                return True
+        
+        return False 
