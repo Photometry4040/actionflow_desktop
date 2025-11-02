@@ -113,6 +113,10 @@ actionflow_desktop/
 - 고급 매크로 기능 (조건부 실행, 반복 설정)
 - 성능 최적화 (메모리 관리, 캐싱)
 - 현대적 테마 시스템
+- **로깅 시스템** (일별 로그 파일, 로그 레벨 설정)
+- **에러 처리 개선** (상세한 예외 추적 및 복구)
+- **JSON 스키마 검증** (데이터 무결성 보장)
+- **손상된 파일 자동 복구**
 
 ## 📊 데이터 구조
 
@@ -122,6 +126,13 @@ actionflow_desktop/
 - `data/templates.json` - 액션 템플릿
 
 사용자가 직접 JSON 파일을 확인하고 편집할 수 있습니다.
+
+### 로그 파일 위치
+- **Windows**: `%APPDATA%/ActionFlow/logs/actionflow_YYYYMMDD.log`
+- **macOS**: `~/Library/Application Support/ActionFlow/logs/actionflow_YYYYMMDD.log`
+- **Linux**: `~/.config/ActionFlow/logs/actionflow_YYYYMMDD.log`
+
+로그 파일은 일별로 자동 생성되며, 최대 5개까지 보관됩니다 (각 10MB 제한).
 
 ## 🛠️ 개발 가이드라인
 

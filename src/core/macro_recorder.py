@@ -8,6 +8,10 @@ from typing import List, Dict, Optional, Callable
 from pynput import mouse, keyboard
 
 from ..utils.data_manager import DataManager
+from ..utils.logger import get_logger
+
+# 로거 초기화
+logger = get_logger(__name__)
 
 
 class MacroRecorder:
@@ -38,66 +42,83 @@ class MacroRecorder:
                        on_recording_stopped: Optional[Callable] = None) -> bool:
         """
         녹화 시작
-        
+
         Args:
             on_action_recorded: 액션 녹화 시 콜백
             on_recording_stopped: 녹화 중지 시 콜백
-        
+
         Returns:
             성공 여부
         """
         if self.is_recording:
+            logger.warning("이미 녹화 중입니다")
             return False
-        
+
+        logger.info("매크로 녹화 시작")
         self.is_recording = True
         self.recorded_actions = []
         self.start_time = time.time()
         self.on_action_recorded = on_action_recorded
         self.on_recording_stopped = on_recording_stopped
-        
-        # 마우스 리스너 시작
-        self.mouse_listener = mouse.Listener(
-            on_move=self._on_mouse_move,
-            on_click=self._on_mouse_click,
-            on_scroll=self._on_mouse_scroll
-        )
-        self.mouse_listener.start()
-        
-        # 키보드 리스너 시작
-        self.keyboard_listener = keyboard.Listener(
-            on_press=self._on_key_press,
-            on_release=self._on_key_release
-        )
-        self.keyboard_listener.start()
-        
-        return True
+
+        try:
+            # 마우스 리스너 시작
+            self.mouse_listener = mouse.Listener(
+                on_move=self._on_mouse_move,
+                on_click=self._on_mouse_click,
+                on_scroll=self._on_mouse_scroll
+            )
+            self.mouse_listener.start()
+            logger.debug("마우스 리스너 시작됨")
+
+            # 키보드 리스너 시작
+            self.keyboard_listener = keyboard.Listener(
+                on_press=self._on_key_press,
+                on_release=self._on_key_release
+            )
+            self.keyboard_listener.start()
+            logger.debug("키보드 리스너 시작됨")
+
+            return True
+        except Exception as e:
+            logger.error(f"녹화 시작 오류: {str(e)}", exc_info=True)
+            self.is_recording = False
+            return False
     
     def stop_recording(self) -> List[Dict]:
         """
         녹화 중지
-        
+
         Returns:
             녹화된 액션 목록
         """
         if not self.is_recording:
+            logger.warning("녹화 중이 아닙니다")
             return []
-        
+
+        logger.info(f"매크로 녹화 중지 - 총 {len(self.recorded_actions)}개의 액션 녹화됨")
         self.is_recording = False
-        
-        # 리스너 중지
-        if self.mouse_listener:
-            self.mouse_listener.stop()
-            self.mouse_listener = None
-        
-        if self.keyboard_listener:
-            self.keyboard_listener.stop()
-            self.keyboard_listener = None
-        
-        # 녹화 중지 콜백 호출
-        if self.on_recording_stopped:
-            self.on_recording_stopped(self.recorded_actions)
-        
-        return self.recorded_actions.copy()
+
+        try:
+            # 리스너 중지
+            if self.mouse_listener:
+                self.mouse_listener.stop()
+                self.mouse_listener = None
+                logger.debug("마우스 리스너 중지됨")
+
+            if self.keyboard_listener:
+                self.keyboard_listener.stop()
+                self.keyboard_listener = None
+                logger.debug("키보드 리스너 중지됨")
+
+            # 녹화 중지 콜백 호출
+            if self.on_recording_stopped:
+                self.on_recording_stopped(self.recorded_actions)
+
+            return self.recorded_actions.copy()
+        except Exception as e:
+            logger.error(f"녹화 중지 오류: {str(e)}", exc_info=True)
+            return self.recorded_actions.copy()
     
     def _on_mouse_move(self, x, y):
         """마우스 이동 이벤트"""

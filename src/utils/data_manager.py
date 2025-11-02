@@ -12,6 +12,10 @@ from pathlib import Path
 from ..models.project import Project
 from ..models.action import Action
 from ..models.settings import Settings, DefaultSettings
+from .logger import get_logger
+
+# 로거 초기화
+logger = get_logger(__name__)
 
 
 class DataManager:
@@ -20,7 +24,7 @@ class DataManager:
     def __init__(self, data_dir: str = "data"):
         """
         초기화
-        
+
         Args:
             data_dir: 데이터 디렉토리 경로
         """
@@ -29,7 +33,9 @@ class DataManager:
         self.settings_file = self.data_dir / "settings.json"
         self.templates_file = self.data_dir / "templates.json"
         self.backup_dir = self.data_dir / "backups"
-        
+
+        logger.info(f"DataManager 초기화: {self.data_dir}")
+
         # 데이터 디렉토리 생성
         self._ensure_data_directory()
     
