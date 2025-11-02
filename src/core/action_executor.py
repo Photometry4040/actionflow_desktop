@@ -12,6 +12,8 @@ from pynput import keyboard
 from ..models.project import Project
 from ..utils.config import config
 from ..utils.logger import get_logger
+from .image_recognizer import ImageRecognizer
+from .data_connector import DataConnector
 
 # 로거 초기화
 logger = get_logger(__name__)
@@ -30,11 +32,18 @@ class ActionExecutor:
         self.on_progress_callback = None
         self.on_complete_callback = None
         self.on_error_callback = None
-        
+
+        # 이미지 인식 및 데이터 연동 모듈 초기화
+        self.image_recognizer = ImageRecognizer()
+        self.data_connector = DataConnector()
+
+        # Excel 루프 처리를 위한 결과 저장 리스트
+        self.excel_results = []
+
         # 안전 장치 설정
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
-        
+
         # ESC 키로 중단 설정 (macOS에서는 관리자 권한 필요하므로 제거)
         # keyboard.on_press_key('esc', self._emergency_stop)
     
@@ -178,8 +187,26 @@ class ActionExecutor:
                 return self._execute_clipboard_paste(parameters)
             elif action_type == 'key_combination':
                 return self._execute_key_combination(parameters)
+            elif action_type == 'image_click':
+                return self._execute_image_click(parameters)
+            elif action_type == 'wait_for_image':
+                return self._execute_wait_for_image(parameters)
+            elif action_type == 'find_image':
+                return self._execute_find_image(parameters)
+            elif action_type == 'wait_for_any_image':
+                return self._execute_wait_for_any_image(parameters)
+            elif action_type == 'excel_load_data':
+                return self._execute_excel_load_data(parameters)
+            elif action_type == 'excel_loop_start':
+                return self._execute_excel_loop_start(parameters)
+            elif action_type == 'excel_loop_end':
+                return self._execute_excel_loop_end(parameters)
+            elif action_type == 'excel_get_cell':
+                return self._execute_excel_get_cell(parameters)
+            elif action_type == 'excel_save_results':
+                return self._execute_excel_save_results(parameters)
             else:
-                print(f"알 수 없는 액션 타입: {action_type}")
+                logger.warning(f"알 수 없는 액션 타입: {action_type}")
                 return False
                 
         except Exception as e:
@@ -408,6 +435,226 @@ class ActionExecutor:
             self.stop_execution()
             print("ESC 키로 실행이 중단되었습니다.")
     
+    def _execute_image_click(self, parameters: Dict) -> bool:
+        """이미지 클릭 실행"""
+        try:
+            template_path = parameters.get('template_path', '')
+            confidence = parameters.get('confidence', 0.8)
+            timeout = parameters.get('timeout', 0)
+            button = parameters.get('button', 'left')
+            clicks = parameters.get('clicks', 1)
+
+            logger.debug(f"이미지 클릭 시도: {template_path}, 신뢰도: {confidence}")
+
+            success = self.image_recognizer.click_image(
+                template_path=template_path,
+                confidence=confidence,
+                timeout=timeout,
+                button=button,
+                clicks=clicks
+            )
+
+            if success:
+                logger.info(f"이미지 클릭 성공: {template_path}")
+            else:
+                logger.warning(f"이미지를 찾지 못해 클릭 실패: {template_path}")
+
+            return success
+        except Exception as e:
+            logger.error(f"이미지 클릭 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_wait_for_image(self, parameters: Dict) -> bool:
+        """이미지 대기 실행"""
+        try:
+            template_path = parameters.get('template_path', '')
+            confidence = parameters.get('confidence', 0.8)
+            timeout = parameters.get('timeout', 10.0)
+
+            logger.debug(f"이미지 대기 시작: {template_path}, 타임아웃: {timeout}초")
+
+            found, location = self.image_recognizer.wait_for_image(
+                template_path=template_path,
+                confidence=confidence,
+                timeout=timeout
+            )
+
+            if found:
+                logger.info(f"이미지 발견: {template_path} at {location}")
+            else:
+                logger.warning(f"이미지 대기 타임아웃: {template_path}")
+
+            return found
+        except Exception as e:
+            logger.error(f"이미지 대기 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_find_image(self, parameters: Dict) -> bool:
+        """이미지 찾기 실행"""
+        try:
+            template_path = parameters.get('template_path', '')
+            confidence = parameters.get('confidence', 0.8)
+
+            logger.debug(f"이미지 찾기: {template_path}")
+
+            found, location = self.image_recognizer.find_on_screen(
+                template_path=template_path,
+                confidence=confidence
+            )
+
+            if found:
+                logger.info(f"이미지 발견: {template_path} at {location}")
+            else:
+                logger.debug(f"이미지를 찾지 못함: {template_path}")
+
+            return found
+        except Exception as e:
+            logger.error(f"이미지 찾기 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_wait_for_any_image(self, parameters: Dict) -> bool:
+        """여러 이미지 중 하나 대기 실행"""
+        try:
+            template_paths = parameters.get('template_paths', [])
+            confidence = parameters.get('confidence', 0.8)
+            timeout = parameters.get('timeout', 10.0)
+
+            logger.debug(f"여러 이미지 중 하나 대기: {len(template_paths)}개")
+
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                found, index, location = self.image_recognizer.find_any(
+                    template_paths=template_paths,
+                    confidence=confidence
+                )
+
+                if found:
+                    logger.info(f"이미지 발견: {template_paths[index]} at {location}")
+                    return True
+
+                time.sleep(0.5)
+
+            logger.warning("여러 이미지 중 하나도 찾지 못함 (타임아웃)")
+            return False
+        except Exception as e:
+            logger.error(f"여러 이미지 대기 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_excel_load_data(self, parameters: Dict) -> bool:
+        """Excel/CSV 데이터 로드 실행"""
+        try:
+            file_path = parameters.get('file_path', '')
+            sheet_name = parameters.get('sheet_name', None)
+            encoding = parameters.get('encoding', 'utf-8')
+
+            logger.debug(f"Excel/CSV 데이터 로드: {file_path}")
+
+            success = self.data_connector.load_data(
+                file_path=file_path,
+                sheet_name=sheet_name,
+                encoding=encoding
+            )
+
+            if success:
+                info = self.data_connector.get_data_info()
+                logger.info(f"데이터 로드 성공: {info['rows']}행, 컬럼: {info['columns']}")
+            else:
+                logger.error(f"데이터 로드 실패: {file_path}")
+
+            return success
+        except Exception as e:
+            logger.error(f"Excel 데이터 로드 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_excel_loop_start(self, parameters: Dict) -> bool:
+        """Excel 루프 시작 실행"""
+        try:
+            filter_condition = parameters.get('filter_condition', None)
+
+            logger.debug("Excel 루프 시작")
+
+            success = self.data_connector.start_loop(filter_condition=filter_condition)
+
+            if success:
+                total_rows = self.data_connector.get_total_rows()
+                logger.info(f"Excel 루프 시작: {total_rows}행 처리 예정")
+                # 결과 저장 리스트 초기화
+                self.excel_results = []
+            else:
+                logger.error("Excel 루프 시작 실패")
+
+            return success
+        except Exception as e:
+            logger.error(f"Excel 루프 시작 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_excel_loop_end(self, parameters: Dict) -> bool:
+        """Excel 루프 종료 실행"""
+        try:
+            logger.debug("Excel 루프 종료")
+
+            success = self.data_connector.end_loop()
+
+            if success:
+                logger.info("Excel 루프 종료 성공")
+
+            return success
+        except Exception as e:
+            logger.error(f"Excel 루프 종료 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_excel_get_cell(self, parameters: Dict) -> bool:
+        """Excel 셀 값 가져오기 실행"""
+        try:
+            column_name = parameters.get('column_name', '')
+            variable_name = parameters.get('variable_name', '')
+            default_value = parameters.get('default_value', None)
+
+            logger.debug(f"Excel 셀 값 가져오기: {column_name}")
+
+            value = self.data_connector.get_column_value(
+                column_name=column_name,
+                default=default_value
+            )
+
+            if value is not None:
+                logger.info(f"셀 값 가져오기 성공: {column_name} = {value}")
+                # 변수에 저장 (향후 변수 시스템 구현 시 사용)
+                # self.variables[variable_name] = value
+            else:
+                logger.warning(f"셀 값을 가져오지 못함: {column_name}")
+
+            return True
+        except Exception as e:
+            logger.error(f"Excel 셀 값 가져오기 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_excel_save_results(self, parameters: Dict) -> bool:
+        """Excel/CSV 결과 저장 실행"""
+        try:
+            output_path = parameters.get('output_path', '')
+            append = parameters.get('append', False)
+
+            logger.debug(f"Excel/CSV 결과 저장: {output_path}")
+
+            success = self.data_connector.save_data(
+                data=self.excel_results,
+                output_path=output_path,
+                append=append
+            )
+
+            if success:
+                logger.info(f"결과 저장 성공: {len(self.excel_results)}행 저장됨")
+                # 결과 리스트 초기화
+                self.excel_results = []
+            else:
+                logger.error(f"결과 저장 실패: {output_path}")
+
+            return success
+        except Exception as e:
+            logger.error(f"Excel 결과 저장 오류: {str(e)}", exc_info=True)
+            return False
+
     def _call_callback(self, callback: Optional[Callable], *args):
         """콜백 함수 호출"""
         if callback:

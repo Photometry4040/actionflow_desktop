@@ -67,11 +67,25 @@ class ActionTypes:
     KEYBOARD_TYPE = "keyboard_type"
     KEYBOARD_PRESS = "keyboard_press"
     KEYBOARD_HOTKEY = "keyboard_hotkey"
-    
+    KEY_COMBINATION = "key_combination"
+
     # 클립보드 액션
     CLIPBOARD_COPY = "clipboard_copy"
     CLIPBOARD_PASTE = "clipboard_paste"
-    
+
+    # 이미지 인식 액션
+    IMAGE_CLICK = "image_click"
+    WAIT_FOR_IMAGE = "wait_for_image"
+    FIND_IMAGE = "find_image"
+    WAIT_FOR_ANY_IMAGE = "wait_for_any_image"
+
+    # Excel/CSV 데이터 연동 액션
+    EXCEL_LOAD_DATA = "excel_load_data"
+    EXCEL_LOOP_START = "excel_loop_start"
+    EXCEL_LOOP_END = "excel_loop_end"
+    EXCEL_GET_CELL = "excel_get_cell"
+    EXCEL_SAVE_RESULTS = "excel_save_results"
+
     # 기타 액션
     DELAY = "delay"
     SCREENSHOT = "screenshot"
@@ -89,8 +103,18 @@ class ActionTypes:
             cls.KEYBOARD_TYPE,
             cls.KEYBOARD_PRESS,
             cls.KEYBOARD_HOTKEY,
+            cls.KEY_COMBINATION,
             cls.CLIPBOARD_COPY,
             cls.CLIPBOARD_PASTE,
+            cls.IMAGE_CLICK,
+            cls.WAIT_FOR_IMAGE,
+            cls.FIND_IMAGE,
+            cls.WAIT_FOR_ANY_IMAGE,
+            cls.EXCEL_LOAD_DATA,
+            cls.EXCEL_LOOP_START,
+            cls.EXCEL_LOOP_END,
+            cls.EXCEL_GET_CELL,
+            cls.EXCEL_SAVE_RESULTS,
             cls.DELAY,
             cls.SCREENSHOT,
             cls.CONDITIONAL
@@ -108,8 +132,18 @@ class ActionTypes:
             cls.KEYBOARD_TYPE: "키보드 입력",
             cls.KEYBOARD_PRESS: "키보드 누르기",
             cls.KEYBOARD_HOTKEY: "키보드 단축키",
+            cls.KEY_COMBINATION: "키 조합",
             cls.CLIPBOARD_COPY: "복사",
             cls.CLIPBOARD_PASTE: "붙여넣기",
+            cls.IMAGE_CLICK: "이미지 클릭",
+            cls.WAIT_FOR_IMAGE: "이미지 대기",
+            cls.FIND_IMAGE: "이미지 찾기",
+            cls.WAIT_FOR_ANY_IMAGE: "여러 이미지 중 하나 대기",
+            cls.EXCEL_LOAD_DATA: "Excel/CSV 로드",
+            cls.EXCEL_LOOP_START: "Excel 루프 시작",
+            cls.EXCEL_LOOP_END: "Excel 루프 종료",
+            cls.EXCEL_GET_CELL: "Excel 셀 값 가져오기",
+            cls.EXCEL_SAVE_RESULTS: "Excel/CSV 저장",
             cls.DELAY: "지연",
             cls.SCREENSHOT: "스크린샷",
             cls.CONDITIONAL: "조건부 실행"
