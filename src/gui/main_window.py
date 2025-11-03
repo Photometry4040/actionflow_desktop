@@ -19,6 +19,7 @@ from .dialogs.project_dialog import show_project_dialog
 from .dialogs.action_dialog import show_action_dialog
 from .dialogs.settings_dialog import show_settings_dialog
 from .dialogs.execution_status_dialog import show_execution_status_dialog
+from .dialogs.execution_log_dialog import show_execution_log_dialog
 
 
 class MainWindow:
@@ -119,6 +120,7 @@ class MainWindow:
         self.run_menu.add_command(label="실행 일시정지", command=self._pause_execution, accelerator="F7")
         self.run_menu.add_separator()
         self.run_menu.add_command(label="실행 상태 확인", command=self._show_execution_status, accelerator="F9")
+        self.run_menu.add_command(label="실행 로그 보기", command=self._show_execution_log, accelerator="F10")
         
         # 도구 메뉴
         self.tools_menu = tk.Menu(self.menu_bar, tearoff=0)
@@ -321,6 +323,7 @@ class MainWindow:
         self.root.bind('<F7>', lambda e: self._pause_execution())
         self.root.bind('<F8>', lambda e: self._debug_project())
         self.root.bind('<F9>', lambda e: self._show_execution_status())
+        self.root.bind('<F10>', lambda e: self._show_execution_log())
         self.root.bind('<Escape>', lambda e: self._stop_execution())
 
         # 트리뷰 이벤트
@@ -1142,6 +1145,10 @@ class MainWindow:
     def _show_execution_status(self):
         """실행 상태 확인 다이얼로그 표시"""
         show_execution_status_dialog(self.root, self.action_executor)
+
+    def _show_execution_log(self):
+        """실행 로그 뷰어 다이얼로그 표시"""
+        show_execution_log_dialog(self.root, self.action_executor)
 
     # 트리뷰 이벤트 핸들러들
     def _on_project_select(self, event):

@@ -52,6 +52,14 @@ class ActionExecutor:
         # 루프 스택 (중첩 루프 지원)
         self.loop_stack = []
 
+        # 디버깅 및 모니터링 (우선순위 3)
+        self.action_execution_times = []  # 각 액션 실행 시간 기록
+        self.action_retry_enabled = True  # 자동 재시도 활성화
+        self.max_retry_count = 3  # 최대 재시도 횟수
+        self.screenshot_enabled = False  # 스크린샷 캡처 활성화
+        self.screenshot_dir = None  # 스크린샷 저장 디렉토리
+        self.execution_log = []  # 실행 로그 저장
+
         # 안전 장치 설정
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
@@ -107,6 +115,10 @@ class ActionExecutor:
             self.variables = {}
             self.loop_stack = []
 
+            # 디버깅 데이터 초기화
+            self.action_execution_times = []
+            self.execution_log = []
+
             actions = project.actions
             total_actions = len(actions)
             self.total_actions = total_actions
@@ -150,19 +162,80 @@ class ActionExecutor:
                 logger.debug(f"액션 실행 중 ({i+1}/{total_actions}): {action_description}")
                 self._call_callback(self.on_progress_callback, i+1, total_actions, action_description)
 
-                # 액션 실행
-                try:
-                    success = self._execute_action(action)
-                    if not success:
-                        error_msg = f"액션 실행 실패: {action.get('description', '알 수 없는 액션')}"
-                        logger.error(error_msg)
-                        self._call_callback(self.on_error_callback, error_msg)
-                        return
-                except Exception as action_error:
-                    error_msg = f"액션 실행 중 예외 발생: {action.get('description', '알 수 없는 액션')} - {str(action_error)}"
-                    logger.error(error_msg, exc_info=True)
+                # 스크린샷 캡처 (실행 전)
+                screenshot_before = None
+                if self.screenshot_enabled and self.screenshot_dir:
+                    screenshot_before = self._capture_screenshot(action, 'before')
+
+                # 액션 실행 (재시도 로직 포함)
+                retry_count = 0
+                success = False
+                execution_time = 0.0
+                error_msg = None
+
+                while retry_count <= (self.max_retry_count if self.action_retry_enabled else 0):
+                    try:
+                        # 실행 시간 측정
+                        exec_start = time.time()
+                        success = self._execute_action(action)
+                        execution_time = time.time() - exec_start
+
+                        if success:
+                            # 성공 시 로그 기록
+                            log_entry = {
+                                'timestamp': time.time(),
+                                'action_index': i,
+                                'action_id': action.get('id'),
+                                'action_type': action.get('action_type'),
+                                'description': action.get('description', ''),
+                                'status': 'success',
+                                'execution_time': execution_time,
+                                'retry_count': retry_count
+                            }
+                            self.execution_log.append(log_entry)
+                            self.action_execution_times.append(execution_time)
+                            logger.info(f"액션 실행 성공 ({execution_time:.3f}초): {action_description}")
+                            break
+                        else:
+                            retry_count += 1
+                            if retry_count <= self.max_retry_count and self.action_retry_enabled:
+                                logger.warning(f"액션 실행 실패, 재시도 {retry_count}/{self.max_retry_count}: {action_description}")
+                                time.sleep(0.5)  # 재시도 전 대기
+                            else:
+                                error_msg = f"액션 실행 실패 (재시도 {retry_count-1}회): {action.get('description', '알 수 없는 액션')}"
+                                logger.error(error_msg)
+
+                    except Exception as action_error:
+                        retry_count += 1
+                        execution_time = time.time() - exec_start
+                        error_msg = f"액션 실행 중 예외 발생 (시도 {retry_count}): {action.get('description', '')} - {str(action_error)}"
+
+                        if retry_count <= self.max_retry_count and self.action_retry_enabled:
+                            logger.warning(f"{error_msg}, 재시도 중...")
+                            time.sleep(0.5)
+                        else:
+                            logger.error(error_msg, exc_info=True)
+
+                # 실행 실패 처리
+                if not success:
+                    log_entry = {
+                        'timestamp': time.time(),
+                        'action_index': i,
+                        'action_id': action.get('id'),
+                        'action_type': action.get('action_type'),
+                        'description': action.get('description', ''),
+                        'status': 'failed',
+                        'execution_time': execution_time,
+                        'retry_count': retry_count - 1,
+                        'error': error_msg
+                    }
+                    self.execution_log.append(log_entry)
                     self._call_callback(self.on_error_callback, error_msg)
                     return
+
+                # 스크린샷 캡처 (실행 후)
+                if self.screenshot_enabled and self.screenshot_dir:
+                    screenshot_after = self._capture_screenshot(action, 'after')
 
             # 완료 콜백 호출
             if not self.should_stop:
@@ -979,4 +1052,107 @@ class ActionExecutor:
                 return True
         except Exception as e:
             logger.error(f"루프 종료 오류: {str(e)}", exc_info=True)
-            return False 
+            return False
+
+    def _capture_screenshot(self, action: Dict, stage: str) -> Optional[str]:
+        """
+        스크린샷 캡처
+
+        Args:
+            action: 액션 정보
+            stage: 'before' 또는 'after'
+
+        Returns:
+            저장된 파일 경로 또는 None
+        """
+        try:
+            import os
+            from datetime import datetime
+
+            if not self.screenshot_dir:
+                return None
+
+            # 디렉토리 생성
+            os.makedirs(self.screenshot_dir, exist_ok=True)
+
+            # 파일명 생성
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f')
+            action_id = action.get('id', 'unknown')
+            action_type = action.get('action_type', 'unknown')
+            filename = f"action_{action_id}_{action_type}_{stage}_{timestamp}.png"
+            filepath = os.path.join(self.screenshot_dir, filename)
+
+            # 스크린샷 캡처
+            screenshot = pyautogui.screenshot()
+            screenshot.save(filepath)
+
+            logger.debug(f"스크린샷 저장: {filepath}")
+            return filepath
+
+        except Exception as e:
+            logger.error(f"스크린샷 캡처 오류: {str(e)}", exc_info=True)
+            return None
+
+    def get_execution_log(self) -> List[Dict]:
+        """
+        실행 로그 반환
+
+        Returns:
+            실행 로그 리스트
+        """
+        return self.execution_log.copy()
+
+    def get_execution_statistics(self) -> Dict:
+        """
+        실행 통계 반환
+
+        Returns:
+            실행 통계 딕셔너리
+        """
+        if not self.action_execution_times:
+            return {
+                'total_actions': 0,
+                'successful_actions': 0,
+                'failed_actions': 0,
+                'total_execution_time': 0.0,
+                'average_execution_time': 0.0,
+                'min_execution_time': 0.0,
+                'max_execution_time': 0.0
+            }
+
+        success_count = sum(1 for log in self.execution_log if log.get('status') == 'success')
+        fail_count = sum(1 for log in self.execution_log if log.get('status') == 'failed')
+
+        return {
+            'total_actions': len(self.execution_log),
+            'successful_actions': success_count,
+            'failed_actions': fail_count,
+            'total_execution_time': sum(self.action_execution_times),
+            'average_execution_time': sum(self.action_execution_times) / len(self.action_execution_times),
+            'min_execution_time': min(self.action_execution_times),
+            'max_execution_time': max(self.action_execution_times)
+        }
+
+    def set_retry_options(self, enabled: bool, max_retries: int = 3):
+        """
+        재시도 옵션 설정
+
+        Args:
+            enabled: 재시도 활성화 여부
+            max_retries: 최대 재시도 횟수
+        """
+        self.action_retry_enabled = enabled
+        self.max_retry_count = max_retries
+        logger.info(f"재시도 옵션 설정: enabled={enabled}, max_retries={max_retries}")
+
+    def set_screenshot_options(self, enabled: bool, directory: Optional[str] = None):
+        """
+        스크린샷 옵션 설정
+
+        Args:
+            enabled: 스크린샷 캡처 활성화 여부
+            directory: 스크린샷 저장 디렉토리
+        """
+        self.screenshot_enabled = enabled
+        self.screenshot_dir = directory
+        logger.info(f"스크린샷 옵션 설정: enabled={enabled}, directory={directory}") 
