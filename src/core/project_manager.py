@@ -281,14 +281,14 @@ class ProjectManager:
     def get_all_categories(self) -> List[str]:
         """모든 카테고리 반환"""
         return self.data_manager.get_categories()
-    
+
     def add_category(self, category: str) -> bool:
         """
         새 카테고리 추가
-        
+
         Args:
             category: 추가할 카테고리명
-        
+
         Returns:
             성공 여부
         """
@@ -302,4 +302,144 @@ class ProjectManager:
                 self.data_manager._save_json(self.data_manager.templates_file, templates_data)
             return True
         except Exception:
-            return False 
+            return False
+
+    # 태그 관리
+    def get_all_tags(self) -> List[str]:
+        """
+        모든 액션 태그 반환
+
+        Returns:
+            태그 목록 (중복 제거)
+        """
+        all_tags = set()
+        for project in self.get_all_projects():
+            for action in project.actions:
+                action_tags = action.get('tags', [])
+                if action_tags:
+                    all_tags.update(action_tags)
+        return sorted(list(all_tags))
+
+    def search_projects_by_tag(self, tag: str) -> List[Project]:
+        """
+        태그로 프로젝트 검색
+
+        Args:
+            tag: 검색할 태그
+
+        Returns:
+            태그를 포함한 액션이 있는 프로젝트 목록
+        """
+        results = []
+        for project in self.get_all_projects():
+            for action in project.actions:
+                action_tags = action.get('tags', [])
+                if tag in action_tags:
+                    results.append(project)
+                    break
+        return results
+
+    def search_projects_advanced(self,
+                                 keyword: str = "",
+                                 category: str = "",
+                                 tag: str = "",
+                                 favorite_only: bool = False,
+                                 search_in_actions: bool = True) -> List[Project]:
+        """
+        고급 프로젝트 검색
+
+        Args:
+            keyword: 검색 키워드 (프로젝트명, 설명)
+            category: 카테고리 필터
+            tag: 태그 필터
+            favorite_only: 즐겨찾기만 검색
+            search_in_actions: 액션 내용도 검색
+
+        Returns:
+            검색 결과 프로젝트 목록
+        """
+        all_projects = self.get_all_projects()
+        results = []
+
+        for project in all_projects:
+            # 즐겨찾기 필터
+            if favorite_only and not project.favorite:
+                continue
+
+            # 카테고리 필터
+            if category and category != "전체" and project.category != category:
+                continue
+
+            # 태그 필터
+            if tag:
+                has_tag = False
+                for action in project.actions:
+                    action_tags = action.get('tags', [])
+                    if tag in action_tags:
+                        has_tag = True
+                        break
+                if not has_tag:
+                    continue
+
+            # 키워드 검색
+            if keyword:
+                keyword_lower = keyword.lower()
+                match = False
+
+                # 프로젝트명, 설명, 카테고리 검색
+                if (keyword_lower in project.name.lower() or
+                    keyword_lower in project.description.lower() or
+                    keyword_lower in project.category.lower()):
+                    match = True
+
+                # 액션 내용 검색
+                if search_in_actions and not match:
+                    for action in project.actions:
+                        action_desc = action.get('description', '').lower()
+                        action_type = action.get('action_type', '').lower()
+                        if keyword_lower in action_desc or keyword_lower in action_type:
+                            match = True
+                            break
+
+                if not match:
+                    continue
+
+            results.append(project)
+
+        return results
+
+    # 최근 실행 프로젝트 관리
+    def get_recent_projects(self) -> List[Project]:
+        """
+        최근 실행 프로젝트 목록 반환
+
+        Returns:
+            최근 실행 프로젝트 목록
+        """
+        settings = self.data_manager.get_settings()
+        recent_ids = settings.get_recent_projects()
+
+        recent_projects = []
+        for project_id in recent_ids:
+            project = self.get_project_by_id(project_id)
+            if project:  # 프로젝트가 삭제되지 않은 경우만 추가
+                recent_projects.append(project)
+
+        return recent_projects
+
+    def add_to_recent_projects(self, project_id: int):
+        """
+        최근 실행 프로젝트에 추가
+
+        Args:
+            project_id: 프로젝트 ID
+        """
+        settings = self.data_manager.get_settings()
+        settings.add_recent_project(project_id)
+        self.data_manager.save_settings(settings)
+
+    def clear_recent_projects(self):
+        """최근 실행 프로젝트 목록 초기화"""
+        settings = self.data_manager.get_settings()
+        settings.clear_recent_projects()
+        self.data_manager.save_settings(settings) 

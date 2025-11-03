@@ -10,12 +10,18 @@ import json
 @dataclass
 class Action:
     """액션 데이터 모델"""
-    
+
     id: int
     order_index: int
     action_type: str
     description: str
     parameters: Dict[str, Any]
+    tags: list = None
+
+    def __post_init__(self):
+        """초기화 후 처리"""
+        if self.tags is None:
+            self.tags = []
     
     def to_dict(self) -> Dict:
         """딕셔너리로 변환"""
@@ -51,6 +57,44 @@ class Action:
             if not hasattr(self, field) or getattr(self, field) is None:
                 return False
         return True
+
+    def add_tag(self, tag: str):
+        """
+        태그 추가
+
+        Args:
+            tag: 추가할 태그
+        """
+        if self.tags is None:
+            self.tags = []
+        if tag and tag not in self.tags:
+            self.tags.append(tag)
+
+    def remove_tag(self, tag: str):
+        """
+        태그 제거
+
+        Args:
+            tag: 제거할 태그
+        """
+        if self.tags and tag in self.tags:
+            self.tags.remove(tag)
+
+    def has_tag(self, tag: str) -> bool:
+        """
+        태그 존재 여부 확인
+
+        Args:
+            tag: 확인할 태그
+
+        Returns:
+            태그 존재 여부
+        """
+        return self.tags is not None and tag in self.tags
+
+    def get_tags(self) -> list:
+        """태그 목록 반환"""
+        return self.tags if self.tags is not None else []
 
 
 class ActionTypes:

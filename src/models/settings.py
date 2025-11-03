@@ -31,6 +31,14 @@ class Settings:
     enable_logging: bool = True
     log_level: str = "INFO"  # "DEBUG", "INFO", "WARNING", "ERROR"
     max_history: int = 100
+
+    # 최근 실행 프로젝트 (최대 10개)
+    recent_projects: list = None
+
+    def __post_init__(self):
+        """초기화 후 처리"""
+        if self.recent_projects is None:
+            self.recent_projects = []
     
     def to_dict(self) -> Dict:
         """딕셔너리로 변환"""
@@ -98,6 +106,37 @@ class Settings:
                 "text": "#1f2937",
                 "text_secondary": "#6b7280"
             }
+
+    def add_recent_project(self, project_id: int):
+        """
+        최근 실행 프로젝트 추가
+
+        Args:
+            project_id: 프로젝트 ID
+        """
+        if self.recent_projects is None:
+            self.recent_projects = []
+
+        # 이미 목록에 있으면 제거 (최근 항목으로 올리기 위해)
+        if project_id in self.recent_projects:
+            self.recent_projects.remove(project_id)
+
+        # 맨 앞에 추가
+        self.recent_projects.insert(0, project_id)
+
+        # 최대 10개만 유지
+        if len(self.recent_projects) > 10:
+            self.recent_projects = self.recent_projects[:10]
+
+    def get_recent_projects(self) -> list:
+        """최근 실행 프로젝트 목록 반환"""
+        if self.recent_projects is None:
+            self.recent_projects = []
+        return self.recent_projects
+
+    def clear_recent_projects(self):
+        """최근 실행 프로젝트 목록 초기화"""
+        self.recent_projects = []
 
 
 class DefaultSettings:

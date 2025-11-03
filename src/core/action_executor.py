@@ -13,6 +13,7 @@ from pynput import keyboard
 from ..models.project import Project
 from ..utils.config import config
 from ..utils.logger import get_logger
+from ..utils.data_manager import DataManager
 from .image_recognizer import ImageRecognizer
 from .data_connector import DataConnector
 
@@ -38,6 +39,9 @@ class ActionExecutor:
         self.total_actions = 0
         self.start_time = None
         self.action_start_times = []  # 각 액션 실행 시작 시간
+
+        # 데이터 관리자 초기화 (최근 프로젝트 기록용)
+        self.data_manager = DataManager()
 
         # 이미지 인식 및 데이터 연동 모듈 초기화
         self.image_recognizer = ImageRecognizer()
@@ -153,6 +157,16 @@ class ActionExecutor:
             # 완료 콜백 호출
             if not self.should_stop:
                 logger.info("프로젝트 실행 완료")
+
+                # 최근 실행 프로젝트 목록에 추가
+                try:
+                    settings = self.data_manager.get_settings()
+                    settings.add_recent_project(project.id)
+                    self.data_manager.save_settings(settings)
+                    logger.debug(f"최근 실행 프로젝트에 추가: {project.name} (ID: {project.id})")
+                except Exception as e:
+                    logger.warning(f"최근 실행 프로젝트 기록 실패: {str(e)}")
+
                 self._call_callback(self.on_complete_callback, True, "모든 액션이 성공적으로 실행되었습니다.")
             else:
                 logger.warning("프로젝트 실행 중단됨")

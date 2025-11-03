@@ -190,10 +190,70 @@ class MainWindow:
         self.left_panel = ttk.Frame(self.main_frame, width=300)
         self.left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 5))
         self.left_panel.pack_propagate(False)
-        
+
         # 프로젝트 목록 제목
         ttk.Label(self.left_panel, text="프로젝트 목록", font=("Arial", 12, "bold")).pack(pady=(0, 5))
-        
+
+        # 검색 및 필터 프레임
+        search_frame = ttk.Frame(self.left_panel)
+        search_frame.pack(fill=tk.X, pady=(0, 5))
+
+        # 검색 바
+        search_label = ttk.Label(search_frame, text="검색:")
+        search_label.pack(side=tk.LEFT, padx=(0, 5))
+
+        self.search_var = tk.StringVar()
+        self.search_var.trace("w", lambda *args: self._on_search_changed())
+        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
+        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # 필터 프레임
+        filter_frame = ttk.Frame(self.left_panel)
+        filter_frame.pack(fill=tk.X, pady=(0, 5))
+
+        # 카테고리 필터
+        ttk.Label(filter_frame, text="카테고리:").pack(side=tk.LEFT, padx=(0, 2))
+        self.category_filter_var = tk.StringVar(value="전체")
+        self.category_filter = ttk.Combobox(filter_frame, textvariable=self.category_filter_var, width=10, state="readonly")
+        self.category_filter['values'] = ["전체"] + self.project_manager.get_all_categories()
+        self.category_filter.pack(side=tk.LEFT, padx=(0, 5))
+        self.category_filter.bind("<<ComboboxSelected>>", lambda e: self._apply_filters())
+
+        # 태그 필터
+        ttk.Label(filter_frame, text="태그:").pack(side=tk.LEFT, padx=(0, 2))
+        self.tag_filter_var = tk.StringVar(value="전체")
+        self.tag_filter = ttk.Combobox(filter_frame, textvariable=self.tag_filter_var, width=10, state="readonly")
+        self.tag_filter['values'] = ["전체"] + self.project_manager.get_all_tags()
+        self.tag_filter.pack(side=tk.LEFT, padx=(0, 5))
+        self.tag_filter.bind("<<ComboboxSelected>>", lambda e: self._apply_filters())
+
+        # 빠른 필터 버튼 프레임
+        quick_filter_frame = ttk.Frame(self.left_panel)
+        quick_filter_frame.pack(fill=tk.X, pady=(0, 5))
+
+        # 즐겨찾기 필터
+        self.favorite_filter_var = tk.BooleanVar(value=False)
+        self.favorite_filter_checkbox = ttk.Checkbutton(
+            quick_filter_frame,
+            text="⭐ 즐겨찾기만",
+            variable=self.favorite_filter_var,
+            command=self._apply_filters
+        )
+        self.favorite_filter_checkbox.pack(side=tk.LEFT, padx=(0, 5))
+
+        # 최근 실행 필터
+        self.recent_filter_var = tk.BooleanVar(value=False)
+        self.recent_filter_checkbox = ttk.Checkbutton(
+            quick_filter_frame,
+            text="🕒 최근 실행",
+            variable=self.recent_filter_var,
+            command=self._apply_filters
+        )
+        self.recent_filter_checkbox.pack(side=tk.LEFT, padx=(0, 5))
+
+        # 필터 초기화 버튼
+        ttk.Button(quick_filter_frame, text="필터 초기화", command=self._reset_filters).pack(side=tk.RIGHT)
+
         # 프로젝트 목록 트리뷰
         self.project_tree = ttk.Treeview(self.left_panel, columns=("name", "actions"), show="tree headings")
         self.project_tree.heading("#0", text="프로젝트")
@@ -203,7 +263,7 @@ class MainWindow:
         self.project_tree.column("name", width=100)
         self.project_tree.column("actions", width=50)
         self.project_tree.pack(fill=tk.BOTH, expand=True)
-        
+
         # 프로젝트 목록 스크롤바
         project_scrollbar = ttk.Scrollbar(self.left_panel, orient=tk.VERTICAL, command=self.project_tree.yview)
         project_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -1105,26 +1165,37 @@ class MainWindow:
     
     def _refresh_project_list(self):
         """프로젝트 목록 새로고침"""
+        # 필터 옵션 업데이트
+        self._update_filter_options()
+
         # 기존 항목 삭제
         for item in self.project_tree.get_children():
             self.project_tree.delete(item)
-        
+
         # 프로젝트 목록 로드
         projects = self.project_manager.get_all_projects()
-        
+
+        # 최근 실행 프로젝트 ID 목록
+        recent_projects = self.project_manager.get_recent_projects()
+        recent_ids = {p.id for p in recent_projects}
+
         # 트리뷰에 추가
         for project in projects:
-            # 즐겨찾기 아이콘
+            # 아이콘 결정
             icon = "⭐" if project.favorite else "📁"
-            
+
+            # 최근 실행 프로젝트 표시
+            if project.id in recent_ids:
+                icon = "🕒 " + icon
+
             self.project_tree.insert(
-                "", 
-                "end", 
+                "",
+                "end",
                 text=f"{icon} {project.name}",
                 values=(project.name, project.get_action_count()),
                 tags=(f"project_{project.id}",)
             )
-        
+
         # 상태바 업데이트
         stats = self.project_manager.get_project_statistics()
         self.status_label.config(text=f"총 {stats['total_projects']}개 프로젝트, {stats['total_actions']}개 액션")
@@ -1712,7 +1783,104 @@ class MainWindow:
             self._refresh_project_list()
             
             messagebox.showinfo("추가 완료", f"{len(recorded_actions)}개의 액션이 프로젝트에 추가되었습니다.")
-    
+
+    # 검색 및 필터 관련 메서드들
+    def _on_search_changed(self):
+        """검색어 변경 시 호출"""
+        self._apply_filters()
+
+    def _apply_filters(self):
+        """필터 적용하여 프로젝트 목록 업데이트"""
+        # 기존 항목 삭제
+        for item in self.project_tree.get_children():
+            self.project_tree.delete(item)
+
+        # 필터 조건 가져오기
+        keyword = self.search_var.get().strip()
+        category = self.category_filter_var.get()
+        tag = self.tag_filter_var.get()
+        favorite_only = self.favorite_filter_var.get()
+        recent_only = self.recent_filter_var.get()
+
+        # 프로젝트 목록 가져오기
+        if recent_only:
+            # 최근 실행 프로젝트만 표시
+            projects = self.project_manager.get_recent_projects()
+
+            # 다른 필터도 적용
+            if favorite_only:
+                projects = [p for p in projects if p.favorite]
+            if category and category != "전체":
+                projects = [p for p in projects if p.category == category]
+            if tag and tag != "전체":
+                tag_projects = self.project_manager.search_projects_by_tag(tag)
+                tag_ids = {p.id for p in tag_projects}
+                projects = [p for p in projects if p.id in tag_ids]
+            if keyword:
+                keyword_lower = keyword.lower()
+                projects = [p for p in projects if
+                           keyword_lower in p.name.lower() or
+                           keyword_lower in p.description.lower()]
+        else:
+            # 고급 검색 사용
+            tag_filter = tag if tag != "전체" else ""
+            category_filter = category if category != "전체" else ""
+
+            projects = self.project_manager.search_projects_advanced(
+                keyword=keyword,
+                category=category_filter,
+                tag=tag_filter,
+                favorite_only=favorite_only,
+                search_in_actions=True
+            )
+
+        # 트리뷰에 추가
+        for project in projects:
+            # 즐겨찾기 아이콘
+            icon = "⭐" if project.favorite else "📁"
+
+            # 최근 실행 프로젝트 표시
+            recent_projects = self.project_manager.get_recent_projects()
+            recent_ids = {p.id for p in recent_projects}
+            if project.id in recent_ids:
+                icon = "🕒 " + icon
+
+            self.project_tree.insert(
+                "",
+                "end",
+                text=f"{icon} {project.name}",
+                values=(project.name, project.get_action_count()),
+                tags=(f"project_{project.id}",)
+            )
+
+        # 상태바 업데이트
+        self.status_label.config(text=f"검색 결과: {len(projects)}개 프로젝트")
+
+    def _reset_filters(self):
+        """필터 초기화"""
+        self.search_var.set("")
+        self.category_filter_var.set("전체")
+        self.tag_filter_var.set("전체")
+        self.favorite_filter_var.set(False)
+        self.recent_filter_var.set(False)
+        self._refresh_project_list()
+
+    def _update_filter_options(self):
+        """필터 옵션 업데이트 (카테고리, 태그 목록)"""
+        # 카테고리 목록 업데이트
+        current_category = self.category_filter_var.get()
+        categories = ["전체"] + self.project_manager.get_all_categories()
+        self.category_filter['values'] = categories
+        if current_category not in categories:
+            self.category_filter_var.set("전체")
+
+        # 태그 목록 업데이트
+        current_tag = self.tag_filter_var.get()
+        tags = ["전체"] + self.project_manager.get_all_tags()
+        self.tag_filter['values'] = tags
+        if current_tag not in tags:
+            self.tag_filter_var.set("전체")
+
     def run(self):
         """애플리케이션 실행"""
         self.root.mainloop() 
