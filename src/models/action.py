@@ -17,11 +17,25 @@ class Action:
     description: str
     parameters: Dict[str, Any]
     tags: list = None
+    error_handling: Dict[str, Any] = None  # 에러 처리 설정
 
     def __post_init__(self):
         """초기화 후 처리"""
         if self.tags is None:
             self.tags = []
+        if self.error_handling is None:
+            self.error_handling = self.get_default_error_handling()
+
+    @staticmethod
+    def get_default_error_handling() -> Dict[str, Any]:
+        """기본 에러 처리 설정 반환"""
+        return {
+            'retry_count': 0,       # 재시도 횟수 (0 = 재시도 안 함)
+            'retry_delay': 1.0,     # 재시도 간격 (초)
+            'timeout': None,        # 타임아웃 (초, None = 제한 없음)
+            'on_error': 'stop',     # 에러 발생 시 행동: 'ignore', 'stop', 'retry', 'jump'
+            'jump_to_action_id': None  # on_error='jump'일 때 점프할 액션 ID
+        }
     
     def to_dict(self) -> Dict:
         """딕셔너리로 변환"""

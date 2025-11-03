@@ -49,7 +49,7 @@ class ActionDialog:
         else:
             self.dialog.title("새 액션 추가")
         
-        self.dialog.geometry("600x500")
+        self.dialog.geometry("650x650")
         self.dialog.resizable(False, False)
         
         # 모달 다이얼로그로 설정
@@ -117,7 +117,53 @@ class ActionDialog:
         # 파라미터 위젯들을 동적으로 생성
         self.param_widgets = {}
         self._create_parameter_widgets()
-        
+
+        # 에러 처리 섹션
+        self.error_frame = ttk.LabelFrame(main_frame, text="에러 처리 (선택사항)", padding="10")
+        self.error_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # 에러 발생 시 행동
+        ttk.Label(self.error_frame, text="에러 발생 시:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.on_error_var = tk.StringVar(value="중단")
+        self.on_error_combo = ttk.Combobox(
+            self.error_frame,
+            textvariable=self.on_error_var,
+            width=15,
+            state="readonly"
+        )
+        self.on_error_combo['values'] = ["중단", "무시하고 계속", "재시도"]
+        self.on_error_combo.grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+
+        # 재시도 횟수
+        ttk.Label(self.error_frame, text="재시도 횟수:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.retry_count_var = tk.StringVar(value="0")
+        self.retry_count_spinbox = ttk.Spinbox(
+            self.error_frame,
+            from_=0,
+            to=10,
+            textvariable=self.retry_count_var,
+            width=10
+        )
+        self.retry_count_spinbox.grid(row=1, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        ttk.Label(self.error_frame, text="(0 = 재시도 안 함)", font=("Arial", 8), foreground="gray").grid(
+            row=1, column=2, sticky=tk.W, padx=(5, 0))
+
+        # 재시도 간격
+        ttk.Label(self.error_frame, text="재시도 간격:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.retry_delay_var = tk.StringVar(value="1.0")
+        self.retry_delay_entry = ttk.Entry(self.error_frame, textvariable=self.retry_delay_var, width=10)
+        self.retry_delay_entry.grid(row=2, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        ttk.Label(self.error_frame, text="초", font=("Arial", 8), foreground="gray").grid(
+            row=2, column=2, sticky=tk.W, padx=(5, 0))
+
+        # 타임아웃
+        ttk.Label(self.error_frame, text="타임아웃:").grid(row=3, column=0, sticky=tk.W, pady=5)
+        self.timeout_var = tk.StringVar(value="")
+        self.timeout_entry = ttk.Entry(self.error_frame, textvariable=self.timeout_var, width=10)
+        self.timeout_entry.grid(row=3, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+        ttk.Label(self.error_frame, text="초 (비워두면 제한 없음)", font=("Arial", 8), foreground="gray").grid(
+            row=3, column=2, sticky=tk.W, padx=(5, 0))
+
         # 버튼 프레임
         button_frame = ttk.Frame(main_frame)
         button_frame.pack(fill=tk.X, pady=(10, 0))
@@ -344,6 +390,24 @@ class ActionDialog:
                 self.tags_var.set(', '.join(tags))
             else:
                 self.tags_var.set("")
+
+            # 에러 처리 설정 로드
+            error_handling = self.action.get('error_handling', {})
+            if error_handling:
+                # on_error 매핑
+                on_error_map = {
+                    'stop': '중단',
+                    'ignore': '무시하고 계속',
+                    'retry': '재시도'
+                }
+                on_error = error_handling.get('on_error', 'stop')
+                self.on_error_var.set(on_error_map.get(on_error, '중단'))
+
+                self.retry_count_var.set(str(error_handling.get('retry_count', 0)))
+                self.retry_delay_var.set(str(error_handling.get('retry_delay', 1.0)))
+
+                timeout = error_handling.get('timeout')
+                self.timeout_var.set(str(timeout) if timeout else "")
 
             # 파라미터 위젯 생성 (액션 타입에 맞는 위젯 생성)
             self._create_parameter_widgets()
@@ -643,12 +707,53 @@ class ActionDialog:
                 # 쉼표로 분리하고 각 태그의 공백 제거
                 tags = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
 
+            # 에러 처리 설정 수집
+            error_handling = {}
+
+            # on_error 매핑 (UI 표시명 -> 내부값)
+            on_error_reverse_map = {
+                '중단': 'stop',
+                '무시하고 계속': 'ignore',
+                '재시도': 'retry'
+            }
+            on_error = on_error_reverse_map.get(self.on_error_var.get(), 'stop')
+            error_handling['on_error'] = on_error
+
+            # 재시도 횟수
+            try:
+                retry_count = int(self.retry_count_var.get())
+                error_handling['retry_count'] = max(0, retry_count)  # 0 이상
+            except ValueError:
+                error_handling['retry_count'] = 0
+
+            # 재시도 간격
+            try:
+                retry_delay = float(self.retry_delay_var.get())
+                error_handling['retry_delay'] = max(0.1, retry_delay)  # 최소 0.1초
+            except ValueError:
+                error_handling['retry_delay'] = 1.0
+
+            # 타임아웃
+            timeout_str = self.timeout_var.get().strip()
+            if timeout_str:
+                try:
+                    timeout = float(timeout_str)
+                    error_handling['timeout'] = max(0.1, timeout) if timeout > 0 else None
+                except ValueError:
+                    error_handling['timeout'] = None
+            else:
+                error_handling['timeout'] = None
+
+            # jump_to_action_id (나중에 구현)
+            error_handling['jump_to_action_id'] = None
+
             if self.action:
                 # 기존 액션 업데이트
                 self.action['action_type'] = action_type
                 self.action['description'] = description
                 self.action['parameters'] = parameters
                 self.action['tags'] = tags
+                self.action['error_handling'] = error_handling
 
                 messagebox.showinfo("성공", "액션이 수정되었습니다.")
             else:
@@ -662,7 +767,8 @@ class ActionDialog:
                     'action_type': action_type,
                     'description': description,
                     'parameters': parameters,
-                    'tags': tags
+                    'tags': tags,
+                    'error_handling': error_handling
                 }
 
                 # 액션을 프로젝트에 저장

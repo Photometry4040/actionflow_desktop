@@ -140,17 +140,18 @@ class ActionExecutor:
                 logger.debug(f"액션 실행 중 ({i+1}/{total_actions}): {action_description}")
                 self._call_callback(self.on_progress_callback, i+1, total_actions, action_description)
 
-                # 액션 실행
+                # 액션 실행 (에러 처리 포함)
                 try:
-                    success = self._execute_action(action)
-                    if not success:
-                        error_msg = f"액션 실행 실패: {action.get('description', '알 수 없는 액션')}"
-                        logger.error(error_msg)
-                        self._call_callback(self.on_error_callback, error_msg)
-                        return
+                    success, should_continue = self._execute_action_with_error_handling(action)
+
+                    if not should_continue:
+                        # 에러 처리 옵션에 따라 중단
+                        logger.warning(f"에러 처리 설정에 따라 실행 중단: {action.get('description', '알 수 없는 액션')}")
+                        break
+
                 except Exception as action_error:
-                    error_msg = f"액션 실행 중 예외 발생: {action.get('description', '알 수 없는 액션')} - {str(action_error)}"
-                    logger.error(error_msg, exc_info=True)
+                    error_msg = f"액션 실행 중 치명적 예외 발생: {action.get('description', '알 수 없는 액션')} - {str(action_error)}"
+                    logger.critical(error_msg, exc_info=True)
                     self._call_callback(self.on_error_callback, error_msg)
                     return
 
@@ -186,63 +187,152 @@ class ActionExecutor:
             self.start_time = None
             self.action_start_times = []
     
+    def _execute_action_with_error_handling(self, action: Dict) -> tuple:
+        """
+        에러 처리를 포함한 액션 실행
+
+        Args:
+            action: 실행할 액션
+
+        Returns:
+            (success: bool, should_continue: bool) 튜플
+            - success: 액션 실행 성공 여부
+            - should_continue: 다음 액션 계속 실행 여부
+        """
+        action_type = action.get('action_type', 'unknown')
+        description = action.get('description', '알 수 없는 액션')
+        action_id = action.get('id', 0)
+
+        # 에러 처리 설정 가져오기
+        error_handling = action.get('error_handling', {})
+        if not error_handling:
+            # 기본값 사용
+            from ..models.action import Action
+            error_handling = Action.get_default_error_handling()
+
+        retry_count = error_handling.get('retry_count', 0)
+        retry_delay = error_handling.get('retry_delay', 1.0)
+        timeout = error_handling.get('timeout')
+        on_error = error_handling.get('on_error', 'stop')
+
+        logger.info(f"액션 실행 시작: [{action_type}] {description} (ID: {action_id})")
+
+        # 재시도 로직
+        max_attempts = retry_count + 1  # 첫 시도 + 재시도 횟수
+
+        for attempt in range(max_attempts):
+            if attempt > 0:
+                logger.info(f"재시도 {attempt}/{retry_count}: [{action_type}] {description}")
+                time.sleep(retry_delay)
+
+            # 실행 시간 측정 시작
+            start_time = time.time()
+
+            try:
+                # 타임아웃 체크를 위한 타이머 설정
+                success = self._execute_action(action)
+                elapsed_time = time.time() - start_time
+
+                # 타임아웃 체크
+                if timeout and elapsed_time > timeout:
+                    logger.error(f"액션 타임아웃: [{action_type}] {description} (제한: {timeout}초, 실행: {elapsed_time:.2f}초)")
+                    success = False
+
+                if success:
+                    logger.info(f"액션 실행 성공: [{action_type}] {description} (소요시간: {elapsed_time:.2f}초)")
+                    return (True, True)
+                else:
+                    logger.warning(f"액션 실행 실패 (시도 {attempt + 1}/{max_attempts}): [{action_type}] {description}")
+
+            except Exception as e:
+                elapsed_time = time.time() - start_time
+                logger.error(f"액션 실행 예외 (시도 {attempt + 1}/{max_attempts}): [{action_type}] {description} - {str(e)}", exc_info=True)
+
+        # 모든 시도 실패 후 에러 처리 옵션에 따라 처리
+        logger.error(f"액션 최종 실패: [{action_type}] {description} (총 {max_attempts}회 시도)")
+
+        if on_error == 'ignore':
+            logger.info(f"에러 무시하고 계속 진행: [{action_type}] {description}")
+            return (False, True)  # 실패했지만 계속 진행
+
+        elif on_error == 'stop':
+            logger.warning(f"에러 발생으로 실행 중단: [{action_type}] {description}")
+            error_msg = f"액션 실행 실패로 중단됨: {description}"
+            self._call_callback(self.on_error_callback, error_msg)
+            return (False, False)  # 실패하고 중단
+
+        elif on_error == 'retry':
+            # 이미 재시도 로직을 거쳤으므로 중단
+            logger.warning(f"재시도 모두 실패, 실행 중단: [{action_type}] {description}")
+            error_msg = f"액션 재시도 실패: {description} ({max_attempts}회 시도)"
+            self._call_callback(self.on_error_callback, error_msg)
+            return (False, False)
+
+        elif on_error == 'jump':
+            jump_to_action_id = error_handling.get('jump_to_action_id')
+            if jump_to_action_id:
+                logger.info(f"에러 발생, 액션 {jump_to_action_id}로 점프: [{action_type}] {description}")
+                # TODO: 점프 로직 구현 (나중에)
+                return (False, True)
+            else:
+                logger.warning(f"점프 대상 액션이 지정되지 않음, 중단: [{action_type}] {description}")
+                return (False, False)
+
+        # 기본값: 중단
+        return (False, False)
+
     def _execute_action(self, action: Dict) -> bool:
         """
         개별 액션 실행
-        
+
         Args:
             action: 실행할 액션
-        
+
         Returns:
             성공 여부
         """
-        try:
-            action_type = action.get('action_type', '')
-            parameters = action.get('parameters', {})
-            
-            # 기본 지연 시간
-            default_delay = config.get_execution_delay()
-            
-            if action_type == 'mouse_move':
-                return self._execute_mouse_move(parameters)
-            elif action_type == 'mouse_click':
-                return self._execute_mouse_click(parameters)
-            elif action_type == 'keyboard_type':
-                return self._execute_keyboard_type(parameters)
-            elif action_type == 'delay':
-                return self._execute_delay(parameters)
-            elif action_type == 'clipboard_copy':
-                return self._execute_clipboard_copy(parameters)
-            elif action_type == 'clipboard_paste':
-                return self._execute_clipboard_paste(parameters)
-            elif action_type == 'key_combination':
-                return self._execute_key_combination(parameters)
-            elif action_type == 'key_press':
-                return self._execute_key_press(parameters)
-            elif action_type == 'image_click':
-                return self._execute_image_click(parameters)
-            elif action_type == 'wait_for_image':
-                return self._execute_wait_for_image(parameters)
-            elif action_type == 'find_image':
-                return self._execute_find_image(parameters)
-            elif action_type == 'wait_for_any_image':
-                return self._execute_wait_for_any_image(parameters)
-            elif action_type == 'excel_load_data':
-                return self._execute_excel_load_data(parameters)
-            elif action_type == 'excel_loop_start':
-                return self._execute_excel_loop_start(parameters)
-            elif action_type == 'excel_loop_end':
-                return self._execute_excel_loop_end(parameters)
-            elif action_type == 'excel_get_cell':
-                return self._execute_excel_get_cell(parameters)
-            elif action_type == 'excel_save_results':
-                return self._execute_excel_save_results(parameters)
-            else:
-                logger.warning(f"알 수 없는 액션 타입: {action_type}")
-                return False
-                
-        except Exception as e:
-            print(f"액션 실행 오류: {str(e)}")
+        action_type = action.get('action_type', '')
+        parameters = action.get('parameters', {})
+
+        # 기본 지연 시간
+        default_delay = config.get_execution_delay()
+
+        if action_type == 'mouse_move':
+            return self._execute_mouse_move(parameters)
+        elif action_type == 'mouse_click':
+            return self._execute_mouse_click(parameters)
+        elif action_type == 'keyboard_type':
+            return self._execute_keyboard_type(parameters)
+        elif action_type == 'delay':
+            return self._execute_delay(parameters)
+        elif action_type == 'clipboard_copy':
+            return self._execute_clipboard_copy(parameters)
+        elif action_type == 'clipboard_paste':
+            return self._execute_clipboard_paste(parameters)
+        elif action_type == 'key_combination':
+            return self._execute_key_combination(parameters)
+        elif action_type == 'key_press':
+            return self._execute_key_press(parameters)
+        elif action_type == 'image_click':
+            return self._execute_image_click(parameters)
+        elif action_type == 'wait_for_image':
+            return self._execute_wait_for_image(parameters)
+        elif action_type == 'find_image':
+            return self._execute_find_image(parameters)
+        elif action_type == 'wait_for_any_image':
+            return self._execute_wait_for_any_image(parameters)
+        elif action_type == 'excel_load_data':
+            return self._execute_excel_load_data(parameters)
+        elif action_type == 'excel_loop_start':
+            return self._execute_excel_loop_start(parameters)
+        elif action_type == 'excel_loop_end':
+            return self._execute_excel_loop_end(parameters)
+        elif action_type == 'excel_get_cell':
+            return self._execute_excel_get_cell(parameters)
+        elif action_type == 'excel_save_results':
+            return self._execute_excel_save_results(parameters)
+        else:
+            logger.warning(f"알 수 없는 액션 타입: {action_type}")
             return False
     
     def _execute_mouse_move(self, parameters: Dict) -> bool:
