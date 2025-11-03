@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
 """
-GUI ät¼\ø ¨È
+GUI ë‹¤ì´ì–¼ë¡œê·¸ ëª¨ë“ˆ
 """
 
 from .project_dialog import show_project_dialog

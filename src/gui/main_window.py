@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 메인 윈도우
 ActionFlow Desktop Automator의 메인 GUI 창
