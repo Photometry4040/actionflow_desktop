@@ -10,12 +10,32 @@ import json
 @dataclass
 class Action:
     """액션 데이터 모델"""
-    
+
     id: int
     order_index: int
     action_type: str
     description: str
     parameters: Dict[str, Any]
+    tags: list = None
+    error_handling: Dict[str, Any] = None  # 에러 처리 설정
+
+    def __post_init__(self):
+        """초기화 후 처리"""
+        if self.tags is None:
+            self.tags = []
+        if self.error_handling is None:
+            self.error_handling = self.get_default_error_handling()
+
+    @staticmethod
+    def get_default_error_handling() -> Dict[str, Any]:
+        """기본 에러 처리 설정 반환"""
+        return {
+            'retry_count': 0,       # 재시도 횟수 (0 = 재시도 안 함)
+            'retry_delay': 1.0,     # 재시도 간격 (초)
+            'timeout': None,        # 타임아웃 (초, None = 제한 없음)
+            'on_error': 'stop',     # 에러 발생 시 행동: 'ignore', 'stop', 'retry', 'jump'
+            'jump_to_action_id': None  # on_error='jump'일 때 점프할 액션 ID
+        }
     
     def to_dict(self) -> Dict:
         """딕셔너리로 변환"""
@@ -51,6 +71,44 @@ class Action:
             if not hasattr(self, field) or getattr(self, field) is None:
                 return False
         return True
+
+    def add_tag(self, tag: str):
+        """
+        태그 추가
+
+        Args:
+            tag: 추가할 태그
+        """
+        if self.tags is None:
+            self.tags = []
+        if tag and tag not in self.tags:
+            self.tags.append(tag)
+
+    def remove_tag(self, tag: str):
+        """
+        태그 제거
+
+        Args:
+            tag: 제거할 태그
+        """
+        if self.tags and tag in self.tags:
+            self.tags.remove(tag)
+
+    def has_tag(self, tag: str) -> bool:
+        """
+        태그 존재 여부 확인
+
+        Args:
+            tag: 확인할 태그
+
+        Returns:
+            태그 존재 여부
+        """
+        return self.tags is not None and tag in self.tags
+
+    def get_tags(self) -> list:
+        """태그 목록 반환"""
+        return self.tags if self.tags is not None else []
 
 
 class ActionTypes:
