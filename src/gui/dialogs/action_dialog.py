@@ -277,7 +277,10 @@ class ActionDialog:
             action_type = self.action.get('action_type', '')
             self.action_type_var.set(self._get_action_type_display_name(action_type))
             self.desc_var.set(self.action.get('description', ''))
-            
+
+            # 파라미터 위젯 생성 (액션 타입에 맞는 위젯 생성)
+            self._create_parameter_widgets()
+
             # 파라미터 로드
             parameters = self.action.get('parameters', {})
             self._load_parameters(parameters)
@@ -441,29 +444,34 @@ class ActionDialog:
                     raise ValueError("좌표와 클릭 횟수는 숫자로 입력해주세요.")
                 
             elif action_type == "키보드 입력":
+                # 텍스트 검증
+                if 'text' not in self.param_widgets:
+                    raise ValueError("텍스트 입력 위젯이 생성되지 않았습니다.")
+
+                text = self.param_widgets['text'].get(1.0, tk.END).strip()
+                if not text:
+                    raise ValueError("입력할 텍스트를 입력해주세요.")
+
+                # 텍스트 길이 검증 (너무 긴 텍스트 방지)
+                if len(text) > 1000:
+                    raise ValueError("입력할 텍스트는 1000자 이하여야 합니다.")
+
+                # 입력 속도 검증
                 try:
-                    text = self.param_widgets['text'].get(1.0, tk.END).strip()
-                    if not text:
-                        raise ValueError("입력할 텍스트를 입력해주세요.")
-                    
-                    # 텍스트 길이 검증 (너무 긴 텍스트 방지)
-                    if len(text) > 1000:
-                        raise ValueError("입력할 텍스트는 1000자 이하여야 합니다.")
-                    
-                    # 입력 속도 검증
-                    try:
-                        interval = float(self.param_widgets['interval'].get())
-                        if interval < 0:
-                            raise ValueError("입력 속도는 0 이상이어야 합니다.")
-                        if interval > 10:
-                            raise ValueError("입력 속도는 10초 이하여야 합니다.")
-                    except ValueError:
-                        raise ValueError("입력 속도는 숫자로 입력해주세요.")
-                except Exception as e:
-                    if "text" in str(e):
-                        raise ValueError("텍스트 입력에 문제가 있습니다.")
-                    else:
-                        raise e
+                    if 'interval' not in self.param_widgets:
+                        raise ValueError("입력 속도 위젯이 생성되지 않았습니다.")
+
+                    interval = float(self.param_widgets['interval'].get())
+                    if interval < 0:
+                        raise ValueError("입력 속도는 0 이상이어야 합니다.")
+                    if interval > 10:
+                        raise ValueError("입력 속도는 10초 이하여야 합니다.")
+                except ValueError as e:
+                    # 이미 ValueError인 경우 그대로 raise
+                    if "입력 속도" in str(e) or "위젯" in str(e):
+                        raise
+                    # 숫자 변환 실패인 경우
+                    raise ValueError("입력 속도는 숫자로 입력해주세요.")
                 
             elif action_type == "지연 시간":
                 try:
