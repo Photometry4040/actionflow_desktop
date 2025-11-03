@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from typing import Optional, Dict, List
 import sys
+import copy
 
 from ..utils.config import config
 from ..utils.data_manager import DataManager
@@ -34,7 +35,12 @@ class MainWindow:
         self.code_generator = CodeGenerator()
         self.backup_manager = BackupManager()
         self.current_project = None
-        
+        self.copied_action = None  # 복사된 액션 저장
+
+        # 드래그 앤 드롭 관련 변수
+        self.drag_item = None  # 드래그 중인 항목
+        self.drag_start_y = 0  # 드래그 시작 Y 좌표
+
         self._setup_window()
         self._create_menu()
         self._create_toolbar()
@@ -98,9 +104,10 @@ class MainWindow:
         self.edit_menu.add_command(label="실행 취소", command=self._undo, accelerator="Ctrl+Z")
         self.edit_menu.add_command(label="다시 실행", command=self._redo, accelerator="Ctrl+Y")
         self.edit_menu.add_separator()
-        self.edit_menu.add_command(label="복사", command=self._copy, accelerator="Ctrl+C")
-        self.edit_menu.add_command(label="붙여넣기", command=self._paste, accelerator="Ctrl+V")
-        self.edit_menu.add_command(label="삭제", command=self._delete, accelerator="Del")
+        self.edit_menu.add_command(label="액션 복사", command=self._copy_action, accelerator="Ctrl+C")
+        self.edit_menu.add_command(label="액션 붙여넣기", command=self._paste_action, accelerator="Ctrl+V")
+        self.edit_menu.add_command(label="액션 삭제", command=self._delete_action, accelerator="Del")
+        self.edit_menu.add_command(label="확인 없이 삭제", command=lambda: self._delete_action(skip_confirm=True), accelerator="Shift+Del")
         
         # 실행 메뉴
         self.run_menu = tk.Menu(self.menu_bar, tearoff=0)
@@ -300,11 +307,21 @@ class MainWindow:
         self.root.bind('<F8>', lambda e: self._debug_project())
         self.root.bind('<F9>', lambda e: self._show_execution_status())
         self.root.bind('<Escape>', lambda e: self._stop_execution())
-        
+        self.root.bind('<Control-c>', lambda e: self._copy_action())
+        self.root.bind('<Control-v>', lambda e: self._paste_action())
+
         # 트리뷰 이벤트
         self.project_tree.bind('<<TreeviewSelect>>', self._on_project_select)
         self.action_tree.bind('<<TreeviewSelect>>', self._on_action_select)
         self.action_tree.bind('<Double-1>', self._on_action_double_click)
+        self.action_tree.bind('<Delete>', lambda e: self._delete_action())  # Delete 키로 삭제
+        self.action_tree.bind('<Shift-Delete>', lambda e: self._delete_action(skip_confirm=True))  # 확인 없이 삭제
+        self.action_tree.bind('<Button-3>', self._show_action_context_menu)  # 우클릭 메뉴
+
+        # 드래그 앤 드롭 이벤트
+        self.action_tree.bind('<Button-1>', self._on_drag_start)
+        self.action_tree.bind('<B1-Motion>', self._on_drag_motion)
+        self.action_tree.bind('<ButtonRelease-1>', self._on_drag_release)
     
     # 메뉴 이벤트 핸들러들
     def _new_project(self):
@@ -1223,44 +1240,79 @@ class MainWindow:
                         self._refresh_project_list()
                 break
     
-    def _delete_action(self):
+    def _delete_action(self, skip_confirm=False):
         """액션 삭제"""
         if not self.current_project:
-            messagebox.showinfo("알림", "삭제할 프로젝트를 선택해주세요.")
+            if not skip_confirm:
+                messagebox.showinfo("알림", "삭제할 프로젝트를 선택해주세요.")
             return
-        
+
         # 선택된 액션 확인
         selection = self.action_tree.selection()
         if not selection:
-            messagebox.showinfo("알림", "삭제할 액션을 선택해주세요.")
+            if not skip_confirm:
+                messagebox.showinfo("알림", "삭제할 액션을 선택해주세요.")
             return
-        
+
         # 선택된 액션 찾기
         item = selection[0]
         tags = self.action_tree.item(item, "tags")
-        
+
         for tag in tags:
             if tag.startswith("action_"):
                 action_id = int(tag.split("_")[1])
                 action = self.current_project.get_action_by_id(action_id)
-                
+
                 if action:
-                    # 삭제 확인
-                    result = messagebox.askyesno(
-                        "액션 삭제", 
-                        f"액션 '{action.get('description', '')}'을(를) 삭제하시겠습니까?"
-                    )
-                    
+                    # 삭제 확인 (skip_confirm이 True면 확인 생략)
+                    if not skip_confirm:
+                        result = messagebox.askyesno(
+                            "액션 삭제",
+                            f"액션 '{action.get('description', '')}'을(를) 삭제하시겠습니까?"
+                        )
+                    else:
+                        result = True
+
                     if result:
                         # 액션 삭제
                         self.current_project.remove_action(action_id)
                         self.data_manager.save_project(self.current_project)
-                        
+
                         # UI 업데이트
                         self._refresh_action_list()
                         self._update_project_info()
                         self._refresh_project_list()
+
+                        self.status_label.config(text=f"액션 삭제됨: {action.get('description', '')}")
                 break
+
+    def _show_action_context_menu(self, event):
+        """액션 우클릭 컨텍스트 메뉴"""
+        if not self.current_project:
+            return
+
+        # 우클릭한 항목 선택
+        item = self.action_tree.identify_row(event.y)
+        if item:
+            self.action_tree.selection_set(item)
+
+            # 컨텍스트 메뉴 생성
+            context_menu = tk.Menu(self.root, tearoff=0)
+            context_menu.add_command(label="액션 편집", command=self._edit_action)
+            context_menu.add_command(label="액션 복사 (Ctrl+C)", command=self._copy_action)
+            context_menu.add_command(label="액션 붙여넣기 (Ctrl+V)", command=self._paste_action)
+            context_menu.add_separator()
+            context_menu.add_command(label="위로 이동", command=self._move_action_up)
+            context_menu.add_command(label="아래로 이동", command=self._move_action_down)
+            context_menu.add_separator()
+            context_menu.add_command(label="액션 삭제 (Delete)", command=lambda: self._delete_action(skip_confirm=False))
+            context_menu.add_command(label="확인 없이 삭제 (Shift+Delete)", command=lambda: self._delete_action(skip_confirm=True))
+
+            # 마우스 위치에 메뉴 표시
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
     
     def _move_action_up(self):
         """액션 위로 이동"""
@@ -1333,7 +1385,188 @@ class MainWindow:
                     self.action_tree.selection_set(item)
                     self.action_tree.see(item)
                     return
-    
+
+    def _copy_action(self):
+        """액션 복사 (Ctrl+C)"""
+        if not self.current_project:
+            return
+
+        # 선택된 액션 확인
+        selection = self.action_tree.selection()
+        if not selection:
+            messagebox.showinfo("알림", "복사할 액션을 선택해주세요.")
+            return
+
+        # 선택된 액션 찾기
+        item = selection[0]
+        tags = self.action_tree.item(item, "tags")
+
+        for tag in tags:
+            if tag.startswith("action_"):
+                action_id = int(tag.split("_")[1])
+                action = self.current_project.get_action_by_id(action_id)
+
+                if action:
+                    # 액션 복사 (딥 카피)
+                    self.copied_action = copy.deepcopy(action)
+                    self.status_label.config(text=f"액션 복사됨: {action.get('description', '')}")
+                break
+
+    def _paste_action(self):
+        """액션 붙여넣기 (Ctrl+V)"""
+        if not self.current_project:
+            messagebox.showinfo("알림", "붙여넣을 프로젝트를 선택해주세요.")
+            return
+
+        if not self.copied_action:
+            messagebox.showinfo("알림", "복사된 액션이 없습니다.")
+            return
+
+        # 새 액션 ID 생성
+        new_action = copy.deepcopy(self.copied_action)
+        new_action['id'] = self.data_manager.get_next_action_id()
+
+        # 선택된 액션 다음에 삽입
+        selection = self.action_tree.selection()
+        if selection:
+            # 선택된 액션의 인덱스 찾기
+            item = selection[0]
+            tags = self.action_tree.item(item, "tags")
+
+            for tag in tags:
+                if tag.startswith("action_"):
+                    action_id = int(tag.split("_")[1])
+
+                    # 선택된 액션의 인덱스 찾기
+                    for i, action in enumerate(self.current_project.actions):
+                        if action.get('id') == action_id:
+                            # 다음 위치에 삽입
+                            new_action['order_index'] = i + 2
+                            self.current_project.actions.insert(i + 1, new_action)
+                            break
+                    break
+        else:
+            # 선택된 액션이 없으면 맨 뒤에 추가
+            new_action['order_index'] = len(self.current_project.actions) + 1
+            self.current_project.actions.append(new_action)
+
+        # order_index 재정렬
+        self.current_project.reorder_actions()
+        self.data_manager.save_project(self.current_project)
+
+        # UI 업데이트
+        self._refresh_action_list()
+        self._update_project_info()
+        self._refresh_project_list()
+
+        # 붙여넣은 액션 선택
+        self._select_action_by_id(new_action['id'])
+
+        self.status_label.config(text=f"액션 붙여넣기 완료: {new_action.get('description', '')}")
+
+    def _on_drag_start(self, event):
+        """드래그 시작"""
+        if not self.current_project:
+            return
+
+        # 클릭한 항목 확인
+        item = self.action_tree.identify_row(event.y)
+        if item:
+            self.drag_item = item
+            self.drag_start_y = event.y
+
+    def _on_drag_motion(self, event):
+        """드래그 중"""
+        if not self.drag_item or not self.current_project:
+            return
+
+        # 현재 마우스 위치의 항목 확인
+        target_item = self.action_tree.identify_row(event.y)
+
+        # 드래그 중 시각적 피드백 (선택 변경)
+        if target_item and target_item != self.drag_item:
+            # 드래그 대상 항목 하이라이트
+            self.action_tree.selection_set(target_item)
+
+    def _on_drag_release(self, event):
+        """드래그 종료 (드롭)"""
+        if not self.drag_item or not self.current_project:
+            self.drag_item = None
+            return
+
+        # 드롭 위치 확인
+        target_item = self.action_tree.identify_row(event.y)
+
+        if target_item and target_item != self.drag_item:
+            # 드래그한 항목과 드롭 위치가 다른 경우에만 이동
+            self._move_action_to_position(self.drag_item, target_item)
+
+        # 드래그 상태 초기화
+        self.drag_item = None
+
+    def _move_action_to_position(self, drag_item, target_item):
+        """액션을 특정 위치로 이동"""
+        # 드래그한 액션 ID 찾기
+        drag_tags = self.action_tree.item(drag_item, "tags")
+        target_tags = self.action_tree.item(target_item, "tags")
+
+        drag_action_id = None
+        target_action_id = None
+
+        for tag in drag_tags:
+            if tag.startswith("action_"):
+                drag_action_id = int(tag.split("_")[1])
+                break
+
+        for tag in target_tags:
+            if tag.startswith("action_"):
+                target_action_id = int(tag.split("_")[1])
+                break
+
+        if not drag_action_id or not target_action_id:
+            return
+
+        # 드래그한 액션과 타겟 액션의 인덱스 찾기
+        drag_index = None
+        target_index = None
+
+        for i, action in enumerate(self.current_project.actions):
+            if action.get('id') == drag_action_id:
+                drag_index = i
+            if action.get('id') == target_action_id:
+                target_index = i
+
+        if drag_index is None or target_index is None:
+            return
+
+        # 액션 이동
+        action = self.current_project.actions.pop(drag_index)
+
+        # 타겟 다음 위치에 삽입
+        # 드래그한 항목이 위에서 아래로 이동한 경우
+        if drag_index < target_index:
+            # pop으로 제거했으므로 인덱스가 1 감소함
+            insert_index = target_index  # 타겟 다음 위치
+        else:
+            # 아래에서 위로 이동하는 경우
+            insert_index = target_index + 1  # 타겟 다음 위치
+
+        self.current_project.actions.insert(insert_index, action)
+
+        # order_index 재정렬
+        self.current_project.reorder_actions()
+        self.data_manager.save_project(self.current_project)
+
+        # UI 업데이트
+        self._refresh_action_list()
+        self._update_project_info()
+        self._refresh_project_list()
+
+        # 이동한 액션 선택
+        self._select_action_by_id(drag_action_id)
+
+        self.status_label.config(text=f"액션 이동 완료: {action.get('description', '')}")
+
     # 실행 콜백 메서드들
     def _on_execution_progress(self, current_action: int, total_actions: int, action_description: str):
         """실행 진행 상황 콜백"""

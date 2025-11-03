@@ -61,6 +61,7 @@ class Project:
     def remove_action(self, action_id: int):
         """액션 제거"""
         self.actions = [action for action in self.actions if action.get('id') != action_id]
+        self._reorder_actions_internal()  # 순서 재정렬 (timestamp 업데이트 없이)
         self.update_timestamp()
     
     def get_action_count(self) -> int:
@@ -130,10 +131,14 @@ class Project:
         self.update_timestamp()
         return True
     
-    def reorder_actions(self):
-        """액션들의 order_index를 순서대로 재정렬"""
+    def _reorder_actions_internal(self):
+        """액션들의 order_index를 순서대로 재정렬 (내부용 - timestamp 업데이트 안 함)"""
         for i, action in enumerate(self.actions):
             action['order_index'] = i + 1
+
+    def reorder_actions(self):
+        """액션들의 order_index를 순서대로 재정렬"""
+        self._reorder_actions_internal()
         self.update_timestamp()
     
     def update_action(self, action_id: int, updated_action: Dict) -> bool:
