@@ -254,6 +254,34 @@ class MainWindow:
         # 필터 초기화 버튼
         ttk.Button(quick_filter_frame, text="필터 초기화", command=self._reset_filters).pack(side=tk.RIGHT)
 
+        # 정렬 프레임
+        sort_frame = ttk.Frame(self.left_panel)
+        sort_frame.pack(fill=tk.X, pady=(0, 5))
+
+        # 정렬 기준
+        ttk.Label(sort_frame, text="정렬:").pack(side=tk.LEFT, padx=(0, 5))
+        self.sort_by_var = tk.StringVar(value="이름순")
+        self.sort_by_combo = ttk.Combobox(sort_frame, textvariable=self.sort_by_var, width=12, state="readonly")
+        self.sort_by_combo['values'] = [
+            "이름순",
+            "최근 수정순",
+            "최근 생성순",
+            "액션 개수순",
+            "카테고리순"
+        ]
+        self.sort_by_combo.pack(side=tk.LEFT, padx=(0, 5))
+        self.sort_by_combo.bind("<<ComboboxSelected>>", lambda e: self._apply_sort())
+
+        # 정렬 방향
+        self.sort_reverse_var = tk.BooleanVar(value=False)
+        self.sort_reverse_checkbox = ttk.Checkbutton(
+            sort_frame,
+            text="↓ 내림차순",
+            variable=self.sort_reverse_var,
+            command=self._apply_sort
+        )
+        self.sort_reverse_checkbox.pack(side=tk.LEFT)
+
         # 프로젝트 목록 트리뷰
         self.project_tree = ttk.Treeview(self.left_panel, columns=("name", "actions"), show="tree headings")
         self.project_tree.heading("#0", text="프로젝트")
@@ -1175,6 +1203,9 @@ class MainWindow:
         # 프로젝트 목록 로드
         projects = self.project_manager.get_all_projects()
 
+        # 정렬 적용
+        projects = self._sort_projects(projects)
+
         # 최근 실행 프로젝트 ID 목록
         recent_projects = self.project_manager.get_recent_projects()
         recent_ids = {p.id for p in recent_projects}
@@ -1235,7 +1266,13 @@ class MainWindow:
             for action in sorted_actions:
                 action_type = action.get('action_type', 'unknown')
                 description = action.get('description', '')
-                
+
+                # 태그 표시 추가
+                tags = action.get('tags', [])
+                if tags:
+                    tag_str = ' '.join([f'[{tag}]' for tag in tags])
+                    description = f"{description} {tag_str}"
+
                 # 액션 타입별 아이콘
                 icon_map = {
                     'mouse_move': '🖱️',
@@ -1246,7 +1283,7 @@ class MainWindow:
                     'clipboard_paste': '📋'
                 }
                 icon = icon_map.get(action_type, '⚙️')
-                
+
                 self.action_tree.insert(
                     "",
                     "end",
@@ -1834,6 +1871,9 @@ class MainWindow:
                 search_in_actions=True
             )
 
+        # 정렬 적용
+        projects = self._sort_projects(projects)
+
         # 트리뷰에 추가
         for project in projects:
             # 즐겨찾기 아이콘
@@ -1856,6 +1896,27 @@ class MainWindow:
         # 상태바 업데이트
         self.status_label.config(text=f"검색 결과: {len(projects)}개 프로젝트")
 
+    def _sort_projects(self, projects):
+        """프로젝트 목록 정렬"""
+        sort_option = self.sort_by_var.get()
+        reverse = self.sort_reverse_var.get()
+
+        # 정렬 기준 매핑
+        sort_map = {
+            "이름순": "name",
+            "최근 수정순": "updated_at",
+            "최근 생성순": "created_at",
+            "액션 개수순": "actions",
+            "카테고리순": "category"
+        }
+
+        sort_by = sort_map.get(sort_option, "name")
+        return self.project_manager.sort_projects(projects, sort_by=sort_by, reverse=reverse)
+
+    def _apply_sort(self):
+        """정렬 적용 (필터와 함께)"""
+        self._apply_filters()
+
     def _reset_filters(self):
         """필터 초기화"""
         self.search_var.set("")
@@ -1863,6 +1924,8 @@ class MainWindow:
         self.tag_filter_var.set("전체")
         self.favorite_filter_var.set(False)
         self.recent_filter_var.set(False)
+        self.sort_by_var.set("이름순")
+        self.sort_reverse_var.set(False)
         self._refresh_project_list()
 
     def _update_filter_options(self):

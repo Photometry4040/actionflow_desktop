@@ -91,7 +91,22 @@ class ActionDialog:
         self.desc_var = tk.StringVar()
         self.desc_entry = ttk.Entry(info_frame, textvariable=self.desc_var, width=40)
         self.desc_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=5)
-        
+
+        # 태그
+        ttk.Label(info_frame, text="태그:").grid(row=2, column=0, sticky=tk.W, pady=5)
+        self.tags_var = tk.StringVar()
+        self.tags_entry = ttk.Entry(info_frame, textvariable=self.tags_var, width=40)
+        self.tags_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=5)
+
+        # 태그 도움말
+        tags_help = ttk.Label(
+            info_frame,
+            text="쉼표로 구분하여 입력 (예: 중요, 자주사용, 웹자동화)",
+            font=("Arial", 8),
+            foreground="gray"
+        )
+        tags_help.grid(row=3, column=1, sticky=tk.W, padx=(10, 0))
+
         # 그리드 가중치 설정
         info_frame.columnconfigure(1, weight=1)
         
@@ -323,6 +338,13 @@ class ActionDialog:
             self.action_type_var.set(self._get_action_type_display_name(action_type))
             self.desc_var.set(self.action.get('description', ''))
 
+            # 태그 로드 (쉼표로 구분된 문자열로 변환)
+            tags = self.action.get('tags', [])
+            if tags:
+                self.tags_var.set(', '.join(tags))
+            else:
+                self.tags_var.set("")
+
             # 파라미터 위젯 생성 (액션 타입에 맞는 위젯 생성)
             self._create_parameter_widgets()
 
@@ -333,6 +355,7 @@ class ActionDialog:
             # 새 액션 기본값 설정
             self.action_type_var.set("마우스 이동")
             self.desc_var.set("")
+            self.tags_var.set("")
             self._create_parameter_widgets()
     
     def _load_parameters(self, parameters: Dict):
@@ -606,41 +629,50 @@ class ActionDialog:
         """액션 저장"""
         if not self._validate_input():
             return
-        
+
         try:
             # 액션 데이터 수집
             action_type = self._get_action_type_internal_name(self.action_type_var.get())
             description = self.desc_var.get().strip()
             parameters = self._collect_parameters()
-            
+
+            # 태그 처리 (쉼표로 구분된 문자열을 리스트로 변환)
+            tags_str = self.tags_var.get().strip()
+            tags = []
+            if tags_str:
+                # 쉼표로 분리하고 각 태그의 공백 제거
+                tags = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
+
             if self.action:
                 # 기존 액션 업데이트
                 self.action['action_type'] = action_type
                 self.action['description'] = description
                 self.action['parameters'] = parameters
-                
+                self.action['tags'] = tags
+
                 messagebox.showinfo("성공", "액션이 수정되었습니다.")
             else:
                 # 새 액션 생성
                 action_id = self.data_manager.get_next_action_id()
                 order_index = self.data_manager.get_next_action_order(self.project_id)
-                
+
                 new_action = {
                     'id': action_id,
                     'order_index': order_index,
                     'action_type': action_type,
                     'description': description,
-                    'parameters': parameters
+                    'parameters': parameters,
+                    'tags': tags
                 }
-                
+
                 # 액션을 프로젝트에 저장
                 self.data_manager.save_action(self.project_id, new_action)
                 self.action = new_action
                 messagebox.showinfo("성공", "새 액션이 추가되었습니다.")
-            
+
             self.result = "saved"
             self.dialog.destroy()
-            
+
         except Exception as e:
             messagebox.showerror("오류", f"액션 저장 중 오류가 발생했습니다:\n{str(e)}")
     
