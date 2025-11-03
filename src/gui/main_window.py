@@ -37,6 +37,10 @@ class MainWindow:
         self.current_project = None
         self.copied_action = None  # 복사된 액션 저장
 
+        # 드래그 앤 드롭 관련 변수
+        self.drag_item = None  # 드래그 중인 항목
+        self.drag_start_y = 0  # 드래그 시작 Y 좌표
+
         self._setup_window()
         self._create_menu()
         self._create_toolbar()
@@ -309,6 +313,11 @@ class MainWindow:
         self.project_tree.bind('<<TreeviewSelect>>', self._on_project_select)
         self.action_tree.bind('<<TreeviewSelect>>', self._on_action_select)
         self.action_tree.bind('<Double-1>', self._on_action_double_click)
+
+        # 드래그 앤 드롭 이벤트
+        self.action_tree.bind('<Button-1>', self._on_drag_start)
+        self.action_tree.bind('<B1-Motion>', self._on_drag_motion)
+        self.action_tree.bind('<ButtonRelease-1>', self._on_drag_release)
     
     # 메뉴 이벤트 핸들러들
     def _new_project(self):
@@ -1415,6 +1424,104 @@ class MainWindow:
         self._select_action_by_id(new_action['id'])
 
         self.status_label.config(text=f"액션 붙여넣기 완료: {new_action.get('description', '')}")
+
+    def _on_drag_start(self, event):
+        """드래그 시작"""
+        if not self.current_project:
+            return
+
+        # 클릭한 항목 확인
+        item = self.action_tree.identify_row(event.y)
+        if item:
+            self.drag_item = item
+            self.drag_start_y = event.y
+
+    def _on_drag_motion(self, event):
+        """드래그 중"""
+        if not self.drag_item or not self.current_project:
+            return
+
+        # 현재 마우스 위치의 항목 확인
+        target_item = self.action_tree.identify_row(event.y)
+
+        # 드래그 중 시각적 피드백 (선택 변경)
+        if target_item and target_item != self.drag_item:
+            # 드래그 대상 항목 하이라이트
+            self.action_tree.selection_set(target_item)
+
+    def _on_drag_release(self, event):
+        """드래그 종료 (드롭)"""
+        if not self.drag_item or not self.current_project:
+            self.drag_item = None
+            return
+
+        # 드롭 위치 확인
+        target_item = self.action_tree.identify_row(event.y)
+
+        if target_item and target_item != self.drag_item:
+            # 드래그한 항목과 드롭 위치가 다른 경우에만 이동
+            self._move_action_to_position(self.drag_item, target_item)
+
+        # 드래그 상태 초기화
+        self.drag_item = None
+
+    def _move_action_to_position(self, drag_item, target_item):
+        """액션을 특정 위치로 이동"""
+        # 드래그한 액션 ID 찾기
+        drag_tags = self.action_tree.item(drag_item, "tags")
+        target_tags = self.action_tree.item(target_item, "tags")
+
+        drag_action_id = None
+        target_action_id = None
+
+        for tag in drag_tags:
+            if tag.startswith("action_"):
+                drag_action_id = int(tag.split("_")[1])
+                break
+
+        for tag in target_tags:
+            if tag.startswith("action_"):
+                target_action_id = int(tag.split("_")[1])
+                break
+
+        if not drag_action_id or not target_action_id:
+            return
+
+        # 드래그한 액션과 타겟 액션의 인덱스 찾기
+        drag_index = None
+        target_index = None
+
+        for i, action in enumerate(self.current_project.actions):
+            if action.get('id') == drag_action_id:
+                drag_index = i
+            if action.get('id') == target_action_id:
+                target_index = i
+
+        if drag_index is None or target_index is None:
+            return
+
+        # 액션 이동
+        action = self.current_project.actions.pop(drag_index)
+
+        # 드래그한 항목이 위에서 아래로 이동한 경우, target_index 조정
+        if drag_index < target_index:
+            target_index -= 1
+
+        self.current_project.actions.insert(target_index, action)
+
+        # order_index 재정렬
+        self.current_project.reorder_actions()
+        self.data_manager.save_project(self.current_project)
+
+        # UI 업데이트
+        self._refresh_action_list()
+        self._update_project_info()
+        self._refresh_project_list()
+
+        # 이동한 액션 선택
+        self._select_action_by_id(drag_action_id)
+
+        self.status_label.config(text=f"액션 이동 완료: {action.get('description', '')}")
 
     # 실행 콜백 메서드들
     def _on_execution_progress(self, current_action: int, total_actions: int, action_description: str):
