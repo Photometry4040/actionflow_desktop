@@ -332,6 +332,10 @@ class MainWindow:
         self.action_tree.bind('<ButtonPress-1>', self._on_drag_start)
         self.action_tree.bind('<B1-Motion>', self._on_drag_motion)
         self.action_tree.bind('<ButtonRelease-1>', self._on_drag_release)
+
+        # 우클릭 컨텍스트 메뉴
+        self.action_tree.bind('<Button-3>', self._show_action_context_menu)  # Windows/Linux
+        self.action_tree.bind('<Button-2>', self._show_action_context_menu)  # macOS
     
     # 메뉴 이벤트 핸들러들
     def _new_project(self):
@@ -1589,6 +1593,79 @@ class MainWindow:
         if target_item and target_item != self.drag_data["item"]:
             # 드래그 대상 하이라이트 (시각적 피드백)
             self.action_tree.selection_set(target_item)
+
+    def _show_action_context_menu(self, event):
+        """액션 우클릭 컨텍스트 메뉴 표시"""
+        # 클릭한 항목 선택
+        item = self.action_tree.identify_row(event.y)
+        if item:
+            self.action_tree.selection_set(item)
+
+            # 컨텍스트 메뉴 생성
+            context_menu = tk.Menu(self.root, tearoff=0)
+            context_menu.add_command(label="여기서부터 실행", command=self._run_from_here)
+            context_menu.add_separator()
+            context_menu.add_command(label="액션 편집", command=self._edit_action)
+            context_menu.add_command(label="액션 복사", command=self._copy_actions)
+            context_menu.add_command(label="액션 삭제", command=self._delete_action)
+
+            # 메뉴 표시
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
+
+    def _run_from_here(self):
+        """선택한 액션부터 실행"""
+        if not self.current_project:
+            messagebox.showinfo("알림", "프로젝트를 선택해주세요.")
+            return
+
+        # 선택된 액션 확인
+        selection = self.action_tree.selection()
+        if not selection:
+            messagebox.showinfo("알림", "시작할 액션을 선택해주세요.")
+            return
+
+        # 선택된 액션의 인덱스 찾기
+        item = selection[0]
+        tags = self.action_tree.item(item, "tags")
+
+        for tag in tags:
+            if tag.startswith("action_"):
+                action_id = int(tag.split("_")[1])
+                action = self.current_project.get_action_by_id(action_id)
+
+                if action:
+                    # 액션 순서에서 해당 액션의 인덱스 찾기
+                    sorted_actions = sorted(self.current_project.actions, key=lambda x: x.get('order_index', 0))
+                    start_index = next((i for i, a in enumerate(sorted_actions) if a.get('id') == action_id), 0)
+
+                    # 실행 확인
+                    result = messagebox.askyesno(
+                        "액션 실행",
+                        f"액션 '{action.get('description', '')}' 부터 실행하시겠습니까?\n\n"
+                        f"총 {len(sorted_actions) - start_index}개의 액션이 실행됩니다.\n"
+                        "ESC 키로 언제든지 중단할 수 있습니다."
+                    )
+
+                    if result:
+                        # 지정한 인덱스부터 실행
+                        success = self.action_executor.execute_project(
+                            project=self.current_project,
+                            on_progress=self._on_execution_progress,
+                            on_complete=self._on_execution_complete,
+                            on_error=self._on_execution_error,
+                            start_index=start_index
+                        )
+
+                        if success:
+                            self._update_execution_buttons()
+                            messagebox.showinfo("실행 시작", f"인덱스 {start_index}부터 실행이 시작되었습니다.")
+                            self._update_execution_buttons()
+                        else:
+                            messagebox.showerror("오류", "이미 실행 중입니다.")
+                break
 
     def _on_drag_release(self, event):
         """드래그 종료"""

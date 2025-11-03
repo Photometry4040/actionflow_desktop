@@ -46,6 +46,12 @@ class ActionExecutor:
         # Excel 루프 처리를 위한 결과 저장 리스트
         self.excel_results = []
 
+        # 변수 시스템
+        self.variables = {}  # 변수 저장소
+
+        # 루프 스택 (중첩 루프 지원)
+        self.loop_stack = []
+
         # 안전 장치 설정
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
@@ -53,47 +59,53 @@ class ActionExecutor:
         # ESC 키로 중단 설정 (macOS에서는 관리자 권한 필요하므로 제거)
         # keyboard.on_press_key('esc', self._emergency_stop)
     
-    def execute_project(self, project: Project, 
+    def execute_project(self, project: Project,
                        on_progress: Optional[Callable] = None,
                        on_complete: Optional[Callable] = None,
-                       on_error: Optional[Callable] = None) -> bool:
+                       on_error: Optional[Callable] = None,
+                       start_index: int = 0) -> bool:
         """
         프로젝트 실행
-        
+
         Args:
             project: 실행할 프로젝트
             on_progress: 진행 상황 콜백 (action_index, total_actions)
             on_complete: 완료 콜백
             on_error: 오류 콜백 (error_message)
-        
+            start_index: 시작할 액션 인덱스 (0부터 시작)
+
         Returns:
             성공 여부
         """
         if self.is_running:
             return False
-        
+
         self.on_progress_callback = on_progress
         self.on_complete_callback = on_complete
         self.on_error_callback = on_error
-        
+
         # 실행 스레드 시작
         self.execution_thread = threading.Thread(
             target=self._execute_project_thread,
-            args=(project,)
+            args=(project, start_index)
         )
         self.execution_thread.daemon = True
         self.execution_thread.start()
-        
+
         return True
     
-    def _execute_project_thread(self, project: Project):
+    def _execute_project_thread(self, project: Project, start_index: int = 0):
         """프로젝트 실행 스레드"""
         try:
             logger.info(f"프로젝트 실행 시작: {project.name} (ID: {project.id})")
             self.is_running = True
             self.is_paused = False
             self.should_stop = False
-            self.current_action_index = 0
+            self.current_action_index = start_index
+
+            # 변수 초기화
+            self.variables = {}
+            self.loop_stack = []
 
             actions = project.actions
             total_actions = len(actions)
@@ -101,7 +113,7 @@ class ActionExecutor:
             self.start_time = time.time()
             self.action_start_times = []
 
-            logger.info(f"총 {total_actions}개의 액션 실행 예정")
+            logger.info(f"총 {total_actions}개의 액션 실행 예정 (시작 인덱스: {start_index})")
 
             if total_actions == 0:
                 logger.warning("실행할 액션이 없습니다")
@@ -111,7 +123,9 @@ class ActionExecutor:
             # 액션 순서대로 정렬
             sorted_actions = sorted(actions, key=lambda x: x.get('order_index', 0))
 
-            for i, action in enumerate(sorted_actions):
+            # start_index부터 실행
+            for i in range(start_index, len(sorted_actions)):
+                action = sorted_actions[i]
                 if self.should_stop:
                     logger.info("사용자 요청으로 실행 중단")
                     break
@@ -223,6 +237,16 @@ class ActionExecutor:
                 return self._execute_excel_get_cell(parameters)
             elif action_type == 'excel_save_results':
                 return self._execute_excel_save_results(parameters)
+            elif action_type == 'set_variable':
+                return self._execute_set_variable(parameters)
+            elif action_type == 'get_variable':
+                return self._execute_get_variable(parameters)
+            elif action_type == 'condition':
+                return self._execute_condition(parameters)
+            elif action_type == 'loop_start':
+                return self._execute_loop_start(parameters)
+            elif action_type == 'loop_end':
+                return self._execute_loop_end(parameters)
             else:
                 logger.warning(f"알 수 없는 액션 타입: {action_type}")
                 return False
@@ -782,4 +806,177 @@ class ActionExecutor:
     
     def get_screen_size(self) -> tuple:
         """화면 크기 반환"""
-        return pyautogui.size() 
+        return pyautogui.size()
+
+    def _execute_set_variable(self, parameters: Dict) -> bool:
+        """변수 설정 실행"""
+        try:
+            variable_name = parameters.get('variable_name', '')
+            value = parameters.get('value', '')
+            value_type = parameters.get('value_type', 'string')
+
+            if not variable_name:
+                logger.warning("변수명이 없습니다")
+                return False
+
+            # 타입에 따라 값 변환
+            if value_type == 'integer':
+                try:
+                    value = int(value)
+                except ValueError:
+                    logger.warning(f"정수로 변환할 수 없습니다: {value}")
+                    return False
+            elif value_type == 'float':
+                try:
+                    value = float(value)
+                except ValueError:
+                    logger.warning(f"실수로 변환할 수 없습니다: {value}")
+                    return False
+            elif value_type == 'boolean':
+                value = str(value).lower() in ['true', '1', 'yes']
+
+            # 변수 저장
+            self.variables[variable_name] = value
+            logger.info(f"변수 설정: {variable_name} = {value} (타입: {value_type})")
+            return True
+        except Exception as e:
+            logger.error(f"변수 설정 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_get_variable(self, parameters: Dict) -> bool:
+        """변수 값 가져오기 실행 (텍스트 입력에 사용)"""
+        try:
+            variable_name = parameters.get('variable_name', '')
+            default_value = parameters.get('default_value', '')
+
+            if not variable_name:
+                logger.warning("변수명이 없습니다")
+                return False
+
+            # 변수 값 가져오기
+            value = self.variables.get(variable_name, default_value)
+            logger.info(f"변수 값 가져오기: {variable_name} = {value}")
+
+            # 클립보드를 통해 붙여넣기
+            if value:
+                original_clipboard = pyperclip.paste()
+                pyperclip.copy(str(value))
+                time.sleep(0.1)
+                pyautogui.hotkey('ctrl', 'v')
+                time.sleep(0.1)
+                pyperclip.copy(original_clipboard)
+
+            return True
+        except Exception as e:
+            logger.error(f"변수 가져오기 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_condition(self, parameters: Dict) -> bool:
+        """조건부 실행 (현재는 단순 변수 비교)"""
+        try:
+            variable_name = parameters.get('variable_name', '')
+            operator = parameters.get('operator', '==')
+            compare_value = parameters.get('compare_value', '')
+            skip_count = parameters.get('skip_count', 0)  # 조건이 거짓일 때 건너뛸 액션 수
+
+            if not variable_name:
+                logger.warning("조건: 변수명이 없습니다")
+                return True  # 조건이 없으면 계속 진행
+
+            # 변수 값 가져오기
+            value = self.variables.get(variable_name)
+
+            if value is None:
+                logger.warning(f"조건: 변수 '{variable_name}'가 존재하지 않습니다")
+                return True
+
+            # 조건 평가
+            result = False
+            try:
+                if operator == '==':
+                    result = str(value) == str(compare_value)
+                elif operator == '!=':
+                    result = str(value) != str(compare_value)
+                elif operator == '>':
+                    result = float(value) > float(compare_value)
+                elif operator == '<':
+                    result = float(value) < float(compare_value)
+                elif operator == '>=':
+                    result = float(value) >= float(compare_value)
+                elif operator == '<=':
+                    result = float(value) <= float(compare_value)
+                elif operator == 'contains':
+                    result = str(compare_value) in str(value)
+                else:
+                    logger.warning(f"알 수 없는 연산자: {operator}")
+                    return True
+            except (ValueError, TypeError) as e:
+                logger.warning(f"조건 평가 오류: {str(e)}")
+                return True
+
+            logger.info(f"조건 평가: {variable_name} {operator} {compare_value} = {result}")
+
+            # 조건이 거짓이면 다음 N개 액션 건너뛰기
+            # (이 기능은 main loop에서 처리해야 하므로 여기서는 로그만 남김)
+            if not result and skip_count > 0:
+                logger.info(f"조건 거짓: 다음 {skip_count}개 액션 건너뛰기")
+                # TODO: 실제 건너뛰기 로직은 _execute_project_thread에 구현 필요
+
+            return result
+        except Exception as e:
+            logger.error(f"조건 실행 오류: {str(e)}", exc_info=True)
+            return True  # 오류 발생 시 계속 진행
+
+    def _execute_loop_start(self, parameters: Dict) -> bool:
+        """루프 시작 실행"""
+        try:
+            loop_count = parameters.get('loop_count', 1)
+            loop_variable = parameters.get('loop_variable', '')
+
+            # 루프 정보 스택에 추가
+            loop_info = {
+                'start_index': self.current_action_index,
+                'loop_count': loop_count,
+                'current_iteration': 0,
+                'loop_variable': loop_variable
+            }
+            self.loop_stack.append(loop_info)
+
+            logger.info(f"루프 시작: {loop_count}회 반복 (변수: {loop_variable})")
+            return True
+        except Exception as e:
+            logger.error(f"루프 시작 오류: {str(e)}", exc_info=True)
+            return False
+
+    def _execute_loop_end(self, parameters: Dict) -> bool:
+        """루프 종료 실행"""
+        try:
+            if not self.loop_stack:
+                logger.warning("루프 스택이 비어있습니다")
+                return False
+
+            # 현재 루프 정보 가져오기
+            loop_info = self.loop_stack[-1]
+            loop_info['current_iteration'] += 1
+
+            # 루프 변수 업데이트
+            if loop_info['loop_variable']:
+                self.variables[loop_info['loop_variable']] = loop_info['current_iteration']
+
+            logger.info(f"루프 반복: {loop_info['current_iteration']}/{loop_info['loop_count']}")
+
+            # 반복 완료 확인
+            if loop_info['current_iteration'] >= loop_info['loop_count']:
+                # 루프 완료
+                self.loop_stack.pop()
+                logger.info("루프 종료")
+                return True
+            else:
+                # 루프 시작 위치로 돌아가기
+                # (이 기능은 _execute_project_thread에서 처리해야 함)
+                logger.info(f"루프 시작 위치로 돌아가기: 인덱스 {loop_info['start_index']}")
+                # TODO: 실제 점프 로직은 _execute_project_thread에 구현 필요
+                return True
+        except Exception as e:
+            logger.error(f"루프 종료 오류: {str(e)}", exc_info=True)
+            return False 
