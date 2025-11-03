@@ -34,6 +34,12 @@ class MainWindow:
         self.code_generator = CodeGenerator()
         self.backup_manager = BackupManager()
         self.current_project = None
+
+        # 드래그 앤 드롭 관련 변수
+        self.drag_data = {"item": None, "y": 0}
+
+        # 복사/붙여넣기 클립보드
+        self.action_clipboard = []
         
         self._setup_window()
         self._create_menu()
@@ -98,9 +104,9 @@ class MainWindow:
         self.edit_menu.add_command(label="실행 취소", command=self._undo, accelerator="Ctrl+Z")
         self.edit_menu.add_command(label="다시 실행", command=self._redo, accelerator="Ctrl+Y")
         self.edit_menu.add_separator()
-        self.edit_menu.add_command(label="복사", command=self._copy, accelerator="Ctrl+C")
-        self.edit_menu.add_command(label="붙여넣기", command=self._paste, accelerator="Ctrl+V")
-        self.edit_menu.add_command(label="삭제", command=self._delete, accelerator="Del")
+        self.edit_menu.add_command(label="액션 복사", command=self._copy_actions, accelerator="Ctrl+C")
+        self.edit_menu.add_command(label="액션 붙여넣기", command=self._paste_actions, accelerator="Ctrl+V")
+        self.edit_menu.add_command(label="액션 삭제", command=self._delete_action, accelerator="Del")
         
         # 실행 메뉴
         self.run_menu = tk.Menu(self.menu_bar, tearoff=0)
@@ -224,8 +230,9 @@ class MainWindow:
         self.action_frame = ttk.LabelFrame(self.right_panel, text="액션 목록")
         self.action_frame.pack(fill=tk.BOTH, expand=True)
         
-        # 액션 목록 트리뷰
-        self.action_tree = ttk.Treeview(self.action_frame, columns=("order", "type", "description"), show="tree headings")
+        # 액션 목록 트리뷰 (다중 선택 가능)
+        self.action_tree = ttk.Treeview(self.action_frame, columns=("order", "type", "description"),
+                                       show="tree headings", selectmode='extended')
         self.action_tree.heading("#0", text="순서")
         self.action_tree.heading("order", text="번호")
         self.action_tree.heading("type", text="타입")
@@ -248,6 +255,8 @@ class MainWindow:
         ttk.Button(self.action_buttons_frame, text="액션 추가", command=self._add_action).pack(side=tk.LEFT, padx=2)
         ttk.Button(self.action_buttons_frame, text="액션 편집", command=self._edit_action).pack(side=tk.LEFT, padx=2)
         ttk.Button(self.action_buttons_frame, text="액션 삭제", command=self._delete_action).pack(side=tk.LEFT, padx=2)
+        ttk.Button(self.action_buttons_frame, text="복사", command=self._copy_actions).pack(side=tk.LEFT, padx=2)
+        ttk.Button(self.action_buttons_frame, text="붙여넣기", command=self._paste_actions).pack(side=tk.LEFT, padx=2)
         ttk.Button(self.action_buttons_frame, text="위로", command=self._move_action_up).pack(side=tk.LEFT, padx=2)
         ttk.Button(self.action_buttons_frame, text="아래로", command=self._move_action_down).pack(side=tk.LEFT, padx=2)
     
@@ -293,18 +302,36 @@ class MainWindow:
         # 윈도우 이벤트
         self.root.protocol("WM_DELETE_WINDOW", self._quit_app)
         self.root.bind('<Control-n>', lambda e: self._new_project())
+        self.root.bind('<Control-N>', lambda e: self._new_project())
         self.root.bind('<Control-o>', lambda e: self._open_project())
+        self.root.bind('<Control-O>', lambda e: self._open_project())
         self.root.bind('<Control-s>', lambda e: self._save_project())
+        self.root.bind('<Control-S>', lambda e: self._save_project())
         self.root.bind('<Control-q>', lambda e: self._quit_app())
+        self.root.bind('<Control-Q>', lambda e: self._quit_app())
+        self.root.bind('<Control-c>', lambda e: self._copy_actions())
+        self.root.bind('<Control-C>', lambda e: self._copy_actions())
+        self.root.bind('<Control-v>', lambda e: self._paste_actions())
+        self.root.bind('<Control-V>', lambda e: self._paste_actions())
+        self.root.bind('<Delete>', lambda e: self._delete_action())
+        self.root.bind('<Control-r>', lambda e: self._run_project())
+        self.root.bind('<Control-R>', lambda e: self._run_project())
         self.root.bind('<F5>', lambda e: self._run_project())
+        self.root.bind('<F6>', lambda e: self._run_selected_action())
+        self.root.bind('<F7>', lambda e: self._pause_execution())
         self.root.bind('<F8>', lambda e: self._debug_project())
         self.root.bind('<F9>', lambda e: self._show_execution_status())
         self.root.bind('<Escape>', lambda e: self._stop_execution())
-        
+
         # 트리뷰 이벤트
         self.project_tree.bind('<<TreeviewSelect>>', self._on_project_select)
         self.action_tree.bind('<<TreeviewSelect>>', self._on_action_select)
         self.action_tree.bind('<Double-1>', self._on_action_double_click)
+
+        # 드래그 앤 드롭 이벤트
+        self.action_tree.bind('<ButtonPress-1>', self._on_drag_start)
+        self.action_tree.bind('<B1-Motion>', self._on_drag_motion)
+        self.action_tree.bind('<ButtonRelease-1>', self._on_drag_release)
     
     # 메뉴 이벤트 핸들러들
     def _new_project(self):
@@ -398,18 +425,72 @@ class MainWindow:
     def _redo(self):
         """다시 실행"""
         messagebox.showinfo("다시 실행", "다시 실행 기능은 Phase 2에서 구현됩니다.")
-    
-    def _copy(self):
-        """복사"""
-        messagebox.showinfo("복사", "복사 기능은 Phase 2에서 구현됩니다.")
-    
-    def _paste(self):
-        """붙여넣기"""
-        messagebox.showinfo("붙여넣기", "붙여넣기 기능은 Phase 2에서 구현됩니다.")
-    
-    def _delete(self):
-        """삭제"""
-        messagebox.showinfo("삭제", "삭제 기능은 Phase 2에서 구현됩니다.")
+
+    def _copy_actions(self):
+        """액션 복사"""
+        if not self.current_project:
+            return
+
+        # 선택된 액션들 확인
+        selection = self.action_tree.selection()
+        if not selection:
+            messagebox.showinfo("알림", "복사할 액션을 선택해주세요.")
+            return
+
+        # 선택된 액션들을 클립보드에 복사
+        self.action_clipboard = []
+        for item in selection:
+            tags = self.action_tree.item(item, "tags")
+            for tag in tags:
+                if tag.startswith("action_"):
+                    action_id = int(tag.split("_")[1])
+                    action = self.current_project.get_action_by_id(action_id)
+                    if action:
+                        # 액션 데이터 복사 (ID는 제외)
+                        action_copy = {
+                            'action_type': action.get('action_type'),
+                            'description': action.get('description'),
+                            'parameters': action.get('parameters', {}).copy()
+                        }
+                        self.action_clipboard.append(action_copy)
+                    break
+
+        self.status_label.config(text=f"{len(self.action_clipboard)}개 액션 복사됨")
+
+    def _paste_actions(self):
+        """액션 붙여넣기"""
+        if not self.current_project:
+            messagebox.showinfo("알림", "붙여넣을 프로젝트를 선택해주세요.")
+            return
+
+        if not self.action_clipboard:
+            messagebox.showinfo("알림", "복사된 액션이 없습니다.")
+            return
+
+        # 클립보드의 액션들을 현재 프로젝트에 추가
+        for action_data in self.action_clipboard:
+            action_id = self.data_manager.get_next_action_id()
+            order_index = self.data_manager.get_next_action_order(self.current_project.id)
+
+            new_action = {
+                'id': action_id,
+                'order_index': order_index,
+                'action_type': action_data['action_type'],
+                'description': action_data['description'] + ' (복사본)',
+                'parameters': action_data['parameters']
+            }
+
+            self.current_project.actions.append(new_action)
+
+        # 프로젝트 저장
+        self.project_manager.update_project(self.current_project)
+
+        # UI 업데이트
+        self._refresh_action_list()
+        self._update_project_info()
+        self._refresh_project_list()
+
+        self.status_label.config(text=f"{len(self.action_clipboard)}개 액션 붙여넣기 완료")
     
     def _run_project(self):
         """프로젝트 실행"""
@@ -1224,43 +1305,53 @@ class MainWindow:
                 break
     
     def _delete_action(self):
-        """액션 삭제"""
+        """액션 삭제 (다중 선택 지원)"""
         if not self.current_project:
             messagebox.showinfo("알림", "삭제할 프로젝트를 선택해주세요.")
             return
-        
-        # 선택된 액션 확인
+
+        # 선택된 액션들 확인
         selection = self.action_tree.selection()
         if not selection:
             messagebox.showinfo("알림", "삭제할 액션을 선택해주세요.")
             return
-        
-        # 선택된 액션 찾기
-        item = selection[0]
-        tags = self.action_tree.item(item, "tags")
-        
-        for tag in tags:
-            if tag.startswith("action_"):
-                action_id = int(tag.split("_")[1])
-                action = self.current_project.get_action_by_id(action_id)
-                
-                if action:
-                    # 삭제 확인
-                    result = messagebox.askyesno(
-                        "액션 삭제", 
-                        f"액션 '{action.get('description', '')}'을(를) 삭제하시겠습니까?"
-                    )
-                    
-                    if result:
-                        # 액션 삭제
-                        self.current_project.remove_action(action_id)
-                        self.data_manager.save_project(self.current_project)
-                        
-                        # UI 업데이트
-                        self._refresh_action_list()
-                        self._update_project_info()
-                        self._refresh_project_list()
-                break
+
+        # 선택된 액션들의 ID 수집
+        action_ids = []
+        for item in selection:
+            tags = self.action_tree.item(item, "tags")
+            for tag in tags:
+                if tag.startswith("action_"):
+                    action_id = int(tag.split("_")[1])
+                    action_ids.append(action_id)
+                    break
+
+        if not action_ids:
+            return
+
+        # 삭제 확인
+        count = len(action_ids)
+        if count == 1:
+            action = self.current_project.get_action_by_id(action_ids[0])
+            message = f"액션 '{action.get('description', '')}'을(를) 삭제하시겠습니까?"
+        else:
+            message = f"선택한 {count}개의 액션을 삭제하시겠습니까?"
+
+        result = messagebox.askyesno("액션 삭제", message)
+
+        if result:
+            # 액션들 삭제
+            for action_id in action_ids:
+                self.current_project.remove_action(action_id)
+
+            self.data_manager.save_project(self.current_project)
+
+            # UI 업데이트
+            self._refresh_action_list()
+            self._update_project_info()
+            self._refresh_project_list()
+
+            self.status_label.config(text=f"{count}개 액션 삭제됨")
     
     def _move_action_up(self):
         """액션 위로 이동"""
@@ -1480,6 +1571,105 @@ class MainWindow:
             
             messagebox.showinfo("추가 완료", f"{len(recorded_actions)}개의 액션이 프로젝트에 추가되었습니다.")
     
+    def _on_drag_start(self, event):
+        """드래그 시작"""
+        # 클릭한 항목 식별
+        item = self.action_tree.identify_row(event.y)
+        if item:
+            self.drag_data["item"] = item
+            self.drag_data["y"] = event.y
+
+    def _on_drag_motion(self, event):
+        """드래그 중"""
+        if not self.drag_data["item"]:
+            return
+
+        # 현재 마우스 위치의 항목 식별
+        target_item = self.action_tree.identify_row(event.y)
+        if target_item and target_item != self.drag_data["item"]:
+            # 드래그 대상 하이라이트 (시각적 피드백)
+            self.action_tree.selection_set(target_item)
+
+    def _on_drag_release(self, event):
+        """드래그 종료"""
+        if not self.drag_data["item"]:
+            return
+
+        # 드롭 위치 식별
+        target_item = self.action_tree.identify_row(event.y)
+        source_item = self.drag_data["item"]
+
+        # 드래그 데이터 초기화
+        self.drag_data["item"] = None
+        self.drag_data["y"] = 0
+
+        # 같은 항목이거나 대상이 없으면 무시
+        if not target_item or source_item == target_item:
+            return
+
+        if not self.current_project:
+            return
+
+        # 소스와 타겟 액션 ID 추출
+        source_tags = self.action_tree.item(source_item, "tags")
+        target_tags = self.action_tree.item(target_item, "tags")
+
+        source_action_id = None
+        target_action_id = None
+
+        for tag in source_tags:
+            if tag.startswith("action_"):
+                source_action_id = int(tag.split("_")[1])
+                break
+
+        for tag in target_tags:
+            if tag.startswith("action_"):
+                target_action_id = int(tag.split("_")[1])
+                break
+
+        if not source_action_id or not target_action_id:
+            return
+
+        # 액션 순서 재배치
+        source_action = self.current_project.get_action_by_id(source_action_id)
+        target_action = self.current_project.get_action_by_id(target_action_id)
+
+        if not source_action or not target_action:
+            return
+
+        # 순서 교환
+        source_order = source_action.get('order_index', 0)
+        target_order = target_action.get('order_index', 0)
+
+        # 모든 액션의 순서 재정렬
+        sorted_actions = sorted(self.current_project.actions, key=lambda x: x.get('order_index', 0))
+
+        # 소스와 타겟 위치 찾기
+        source_idx = next((i for i, a in enumerate(sorted_actions) if a.get('id') == source_action_id), None)
+        target_idx = next((i for i, a in enumerate(sorted_actions) if a.get('id') == target_action_id), None)
+
+        if source_idx is None or target_idx is None:
+            return
+
+        # 액션을 이동
+        moved_action = sorted_actions.pop(source_idx)
+        sorted_actions.insert(target_idx, moved_action)
+
+        # 모든 액션의 order_index 재설정
+        for idx, action in enumerate(sorted_actions):
+            action['order_index'] = idx
+
+        # 프로젝트 저장
+        self.data_manager.save_project(self.current_project)
+
+        # UI 업데이트
+        self._refresh_action_list()
+
+        # 이동된 액션 선택
+        self._select_action_by_id(source_action_id)
+
+        self.status_label.config(text="액션 순서가 변경되었습니다")
+
     def run(self):
         """애플리케이션 실행"""
         self.root.mainloop() 
