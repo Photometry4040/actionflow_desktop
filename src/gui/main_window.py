@@ -590,36 +590,56 @@ class MainWindow:
         
         def run_to_cursor():
             """커서 위치까지 실행"""
+            nonlocal current_action_index
             selection = action_tree.selection()
             if not selection:
                 messagebox.showwarning("경고", "실행할 액션을 선택해주세요.")
                 return
-            
+
             item = selection[0]
             tags = action_tree.item(item, "tags")
-            
+
             for tag in tags:
                 if tag.startswith("action_"):
                     target_action_id = int(tag.split("_")[1])
-                    
+
                     # 현재 인덱스부터 목표 액션까지 실행
                     while current_action_index < len(actions):
                         action = actions[current_action_index]
-                        if action.get('id') == target_action_id:
-                            break
-                        
+
+                        # 상태 업데이트: 실행 중
+                        for tree_item in action_tree.get_children():
+                            if action_tree.item(tree_item, "tags")[0] == f"action_{action.get('id', 0)}":
+                                action_tree.set(tree_item, "status", "실행 중...")
+                                action_tree.selection_set(tree_item)
+                                action_tree.see(tree_item)
+                                break
+
                         # 액션 실행
                         success = self.action_executor.execute_single_action(action)
-                        
-                        # 상태 업데이트
+
+                        # 상태 업데이트: 결과
                         for tree_item in action_tree.get_children():
                             if action_tree.item(tree_item, "tags")[0] == f"action_{action.get('id', 0)}":
                                 status = "성공" if success else "실패"
                                 action_tree.set(tree_item, "status", status)
                                 break
-                        
+
+                        # 인덱스 증가
                         current_action_index += 1
-                    
+
+                        # 목표 액션에 도달하면 중단
+                        if action.get('id') == target_action_id:
+                            # 다음 액션 선택 (있는 경우)
+                            if current_action_index < len(actions):
+                                next_action = actions[current_action_index]
+                                for tree_item in action_tree.get_children():
+                                    if action_tree.item(tree_item, "tags")[0] == f"action_{next_action.get('id', 0)}":
+                                        action_tree.selection_set(tree_item)
+                                        action_tree.see(tree_item)
+                                        break
+                            break
+
                     break
         
         def reset_debug():

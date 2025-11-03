@@ -203,6 +203,8 @@ class ActionExecutor:
                 return self._execute_clipboard_paste(parameters)
             elif action_type == 'key_combination':
                 return self._execute_key_combination(parameters)
+            elif action_type == 'key_press':
+                return self._execute_key_press(parameters)
             elif action_type == 'image_click':
                 return self._execute_image_click(parameters)
             elif action_type == 'wait_for_image':
@@ -421,16 +423,38 @@ class ActionExecutor:
         """키 조합 실행"""
         try:
             keys = parameters.get('keys', '')
-            
+
             # 키 조합 파싱 (예: "ctrl+c" -> ['ctrl', 'c'])
             key_list = keys.split('+')
             pyautogui.hotkey(*key_list)
-            
+
             return True
         except Exception as e:
             print(f"키 조합 오류: {str(e)}")
             return False
-    
+
+    def _execute_key_press(self, parameters: Dict) -> bool:
+        """단일 키 입력 실행 (Delete, Backspace, Enter 등)"""
+        try:
+            key = parameters.get('key', '')
+            count = parameters.get('count', 1)
+
+            if not key:
+                logger.warning("키 입력 오류: 입력할 키가 없습니다")
+                return False
+
+            logger.debug(f"키 입력: {key} (횟수: {count})")
+
+            # 지정된 횟수만큼 키 입력
+            for _ in range(count):
+                pyautogui.press(key)
+                time.sleep(0.1)  # 각 키 입력 사이 짧은 지연
+
+            return True
+        except Exception as e:
+            logger.error(f"키 입력 오류: {str(e)}", exc_info=True)
+            return False
+
     def stop_execution(self):
         """실행 중지"""
         self.should_stop = True
