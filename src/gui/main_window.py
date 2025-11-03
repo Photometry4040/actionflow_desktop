@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 from typing import Optional, Dict, List
 import sys
+import copy
 
 from ..utils.config import config
 from ..utils.data_manager import DataManager
@@ -34,7 +35,8 @@ class MainWindow:
         self.code_generator = CodeGenerator()
         self.backup_manager = BackupManager()
         self.current_project = None
-        
+        self.copied_action = None  # 복사된 액션 저장
+
         self._setup_window()
         self._create_menu()
         self._create_toolbar()
@@ -98,8 +100,8 @@ class MainWindow:
         self.edit_menu.add_command(label="실행 취소", command=self._undo, accelerator="Ctrl+Z")
         self.edit_menu.add_command(label="다시 실행", command=self._redo, accelerator="Ctrl+Y")
         self.edit_menu.add_separator()
-        self.edit_menu.add_command(label="복사", command=self._copy, accelerator="Ctrl+C")
-        self.edit_menu.add_command(label="붙여넣기", command=self._paste, accelerator="Ctrl+V")
+        self.edit_menu.add_command(label="액션 복사", command=self._copy_action, accelerator="Ctrl+C")
+        self.edit_menu.add_command(label="액션 붙여넣기", command=self._paste_action, accelerator="Ctrl+V")
         self.edit_menu.add_command(label="삭제", command=self._delete, accelerator="Del")
         
         # 실행 메뉴
@@ -300,7 +302,9 @@ class MainWindow:
         self.root.bind('<F8>', lambda e: self._debug_project())
         self.root.bind('<F9>', lambda e: self._show_execution_status())
         self.root.bind('<Escape>', lambda e: self._stop_execution())
-        
+        self.root.bind('<Control-c>', lambda e: self._copy_action())
+        self.root.bind('<Control-v>', lambda e: self._paste_action())
+
         # 트리뷰 이벤트
         self.project_tree.bind('<<TreeviewSelect>>', self._on_project_select)
         self.action_tree.bind('<<TreeviewSelect>>', self._on_action_select)
@@ -1333,7 +1337,85 @@ class MainWindow:
                     self.action_tree.selection_set(item)
                     self.action_tree.see(item)
                     return
-    
+
+    def _copy_action(self):
+        """액션 복사 (Ctrl+C)"""
+        if not self.current_project:
+            return
+
+        # 선택된 액션 확인
+        selection = self.action_tree.selection()
+        if not selection:
+            messagebox.showinfo("알림", "복사할 액션을 선택해주세요.")
+            return
+
+        # 선택된 액션 찾기
+        item = selection[0]
+        tags = self.action_tree.item(item, "tags")
+
+        for tag in tags:
+            if tag.startswith("action_"):
+                action_id = int(tag.split("_")[1])
+                action = self.current_project.get_action_by_id(action_id)
+
+                if action:
+                    # 액션 복사 (딥 카피)
+                    self.copied_action = copy.deepcopy(action)
+                    self.status_label.config(text=f"액션 복사됨: {action.get('description', '')}")
+                break
+
+    def _paste_action(self):
+        """액션 붙여넣기 (Ctrl+V)"""
+        if not self.current_project:
+            messagebox.showinfo("알림", "붙여넣을 프로젝트를 선택해주세요.")
+            return
+
+        if not self.copied_action:
+            messagebox.showinfo("알림", "복사된 액션이 없습니다.")
+            return
+
+        # 새 액션 ID 생성
+        new_action = copy.deepcopy(self.copied_action)
+        new_action['id'] = self.data_manager.get_next_action_id()
+
+        # 선택된 액션 다음에 삽입
+        selection = self.action_tree.selection()
+        if selection:
+            # 선택된 액션의 인덱스 찾기
+            item = selection[0]
+            tags = self.action_tree.item(item, "tags")
+
+            for tag in tags:
+                if tag.startswith("action_"):
+                    action_id = int(tag.split("_")[1])
+
+                    # 선택된 액션의 인덱스 찾기
+                    for i, action in enumerate(self.current_project.actions):
+                        if action.get('id') == action_id:
+                            # 다음 위치에 삽입
+                            new_action['order_index'] = i + 2
+                            self.current_project.actions.insert(i + 1, new_action)
+                            break
+                    break
+        else:
+            # 선택된 액션이 없으면 맨 뒤에 추가
+            new_action['order_index'] = len(self.current_project.actions) + 1
+            self.current_project.actions.append(new_action)
+
+        # order_index 재정렬
+        self.current_project.reorder_actions()
+        self.data_manager.save_project(self.current_project)
+
+        # UI 업데이트
+        self._refresh_action_list()
+        self._update_project_info()
+        self._refresh_project_list()
+
+        # 붙여넣은 액션 선택
+        self._select_action_by_id(new_action['id'])
+
+        self.status_label.config(text=f"액션 붙여넣기 완료: {new_action.get('description', '')}")
+
     # 실행 콜백 메서드들
     def _on_execution_progress(self, current_action: int, total_actions: int, action_description: str):
         """실행 진행 상황 콜백"""
