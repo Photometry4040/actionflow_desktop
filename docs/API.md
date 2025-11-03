@@ -48,6 +48,25 @@ def pause_execution(self) -> None:
 
 def resume_execution(self) -> None:
     """실행 재개"""
+
+def get_execution_status(self) -> Dict:
+    """
+    실행 상태 반환
+
+    Returns:
+        실행 상태 정보 딕셔너리:
+        {
+            'is_running': bool,  # 실행 중 여부
+            'is_paused': bool,  # 일시정지 여부
+            'current_action_index': int,  # 현재 액션 인덱스
+            'total_actions': int,  # 총 액션 수
+            'should_stop': bool,  # 중지 요청 여부
+            'progress_percent': float,  # 진행률 (0-100)
+            'elapsed_time': float,  # 경과 시간 (초)
+            'estimated_remaining_time': float,  # 예상 남은 시간 (초)
+            'average_action_time': float  # 액션당 평균 실행 시간 (초)
+        }
+    """
 ```
 
 #### 사용 예제
@@ -544,6 +563,90 @@ if success:
     print(f"총 액션: {stats['total_actions']}개")
     print(f"예상 라인 수: {stats['estimated_lines']}줄")
     print(f"복잡도: {stats['complexity']}")
+```
+
+### 예제 4: 실행 상태 모니터링
+
+```python
+from src.core.project_manager import ProjectManager
+from src.core.action_executor import ActionExecutor
+import time
+import threading
+
+pm = ProjectManager()
+executor = ActionExecutor()
+
+# 프로젝트 로드
+project = pm.get_project_by_id(1)
+
+# 실행 상태 모니터링 함수
+def monitor_execution():
+    while True:
+        status = executor.get_execution_status()
+
+        if status['is_running']:
+            print(f"\r진행률: {status['progress_percent']:.1f}% | "
+                  f"액션: {status['current_action_index'] + 1}/{status['total_actions']} | "
+                  f"경과 시간: {status['elapsed_time']:.1f}초 | "
+                  f"예상 남은 시간: {status['estimated_remaining_time']:.1f}초",
+                  end='', flush=True)
+        else:
+            break
+
+        time.sleep(0.5)
+
+    print("\n실행 완료!")
+
+# 프로젝트 실행
+def on_complete(success, message):
+    print(f"\n완료: {message}")
+
+executor.execute_project(
+    project=project,
+    on_complete=on_complete
+)
+
+# 모니터링 시작
+monitor_thread = threading.Thread(target=monitor_execution)
+monitor_thread.start()
+monitor_thread.join()
+```
+
+### 예제 5: 실행 상태 기반 제어
+
+```python
+from src.core.action_executor import ActionExecutor
+import time
+
+executor = ActionExecutor()
+
+# 프로젝트 실행 시작
+executor.execute_project(project=my_project)
+
+# 특정 조건에서 일시정지
+while True:
+    status = executor.get_execution_status()
+
+    if not status['is_running']:
+        break
+
+    # 50% 완료 시 일시정지
+    if status['progress_percent'] >= 50 and not status['is_paused']:
+        print("50% 완료, 잠시 일시정지합니다...")
+        executor.pause_execution()
+        time.sleep(5)  # 5초 대기
+        print("재개합니다...")
+        executor.resume_execution()
+
+    # 예상 시간이 너무 길면 중지
+    if status['estimated_remaining_time'] > 300:  # 5분 이상
+        print("예상 시간이 너무 깁니다. 실행을 중지합니다.")
+        executor.stop_execution()
+        break
+
+    time.sleep(1)
+
+print("실행 종료")
 ```
 
 ---

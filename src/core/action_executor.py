@@ -33,6 +33,11 @@ class ActionExecutor:
         self.on_complete_callback = None
         self.on_error_callback = None
 
+        # 진행 상태 추적 변수
+        self.total_actions = 0
+        self.start_time = None
+        self.action_start_times = []  # 각 액션 실행 시작 시간
+
         # 이미지 인식 및 데이터 연동 모듈 초기화
         self.image_recognizer = ImageRecognizer()
         self.data_connector = DataConnector()
@@ -91,6 +96,9 @@ class ActionExecutor:
 
             actions = project.actions
             total_actions = len(actions)
+            self.total_actions = total_actions
+            self.start_time = time.time()
+            self.action_start_times = []
 
             logger.info(f"총 {total_actions}개의 액션 실행 예정")
 
@@ -117,6 +125,10 @@ class ActionExecutor:
 
                 # 현재 액션 인덱스 업데이트
                 self.current_action_index = i
+
+                # 액션 시작 시간 기록
+                action_start_time = time.time()
+                self.action_start_times.append(action_start_time)
 
                 # 진행 상황 콜백 호출
                 action_description = action.get('description', f'액션 {i+1}')
@@ -155,6 +167,9 @@ class ActionExecutor:
             self.is_paused = False
             self.should_stop = False
             self.current_action_index = 0
+            self.total_actions = 0
+            self.start_time = None
+            self.action_start_times = []
     
     def _execute_action(self, action: Dict) -> bool:
         """
@@ -664,13 +679,65 @@ class ActionExecutor:
                 print(f"콜백 호출 오류: {str(e)}")
     
     def get_execution_status(self) -> Dict:
-        """실행 상태 반환"""
-        return {
+        """
+        실행 상태 반환
+
+        Returns:
+            실행 상태 정보 딕셔너리:
+            {
+                'is_running': bool,  # 실행 중 여부
+                'is_paused': bool,  # 일시정지 여부
+                'current_action_index': int,  # 현재 액션 인덱스
+                'total_actions': int,  # 총 액션 수
+                'should_stop': bool,  # 중지 요청 여부
+                'progress_percent': float,  # 진행률 (0-100)
+                'elapsed_time': float,  # 경과 시간 (초)
+                'estimated_remaining_time': float,  # 예상 남은 시간 (초)
+                'average_action_time': float  # 액션당 평균 실행 시간 (초)
+            }
+        """
+        status = {
             'is_running': self.is_running,
             'is_paused': self.is_paused,
             'current_action_index': self.current_action_index,
-            'should_stop': self.should_stop
+            'total_actions': self.total_actions,
+            'should_stop': self.should_stop,
+            'progress_percent': 0.0,
+            'elapsed_time': 0.0,
+            'estimated_remaining_time': 0.0,
+            'average_action_time': 0.0
         }
+
+        # 진행률 계산 (현재 실행 중인 액션 포함)
+        if self.total_actions > 0:
+            if self.is_running:
+                # current_action_index는 0부터 시작하므로 +1 필요
+                # 예: 10개 중 첫 번째 액션 실행 시 (0 + 1) / 10 = 10%
+                status['progress_percent'] = ((self.current_action_index + 1) / self.total_actions) * 100
+            else:
+                # 실행이 중지된 경우 마지막 완료된 액션까지만 계산
+                status['progress_percent'] = (self.current_action_index / self.total_actions) * 100
+
+        # 경과 시간 계산
+        if self.start_time is not None:
+            status['elapsed_time'] = time.time() - self.start_time
+
+        # 평균 액션 실행 시간 계산
+        if len(self.action_start_times) > 1:
+            # 각 액션 간 시간 차이 계산
+            time_diffs = []
+            for i in range(1, len(self.action_start_times)):
+                time_diffs.append(self.action_start_times[i] - self.action_start_times[i-1])
+
+            if time_diffs:
+                status['average_action_time'] = sum(time_diffs) / len(time_diffs)
+
+                # 예상 남은 시간 계산
+                remaining_actions = self.total_actions - self.current_action_index - 1
+                if remaining_actions > 0:
+                    status['estimated_remaining_time'] = status['average_action_time'] * remaining_actions
+
+        return status
     
     def execute_single_action(self, action: Dict) -> bool:
         """
