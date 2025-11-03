@@ -194,7 +194,58 @@ class MainWindow:
         
         # 프로젝트 목록 제목
         ttk.Label(self.left_panel, text="프로젝트 목록", font=("Arial", 12, "bold")).pack(pady=(0, 5))
-        
+
+        # 검색 및 필터 프레임
+        search_frame = ttk.Frame(self.left_panel)
+        search_frame.pack(fill=tk.X, padx=5, pady=5)
+
+        # 검색 입력
+        ttk.Label(search_frame, text="🔍").pack(side=tk.LEFT)
+        self.search_var = tk.StringVar()
+        self.search_var.trace('w', lambda *args: self._on_search_changed())
+        search_entry = ttk.Entry(search_frame, textvariable=self.search_var)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        # 필터 프레임
+        filter_frame = ttk.Frame(self.left_panel)
+        filter_frame.pack(fill=tk.X, padx=5, pady=2)
+
+        # 카테고리 필터
+        ttk.Label(filter_frame, text="카테고리:").pack(side=tk.LEFT, padx=2)
+        self.category_filter_var = tk.StringVar(value="전체")
+        self.category_filter = ttk.Combobox(filter_frame, textvariable=self.category_filter_var,
+                                            width=10, state='readonly')
+        self.category_filter['values'] = ["전체"] + self.project_manager.get_all_categories()
+        self.category_filter.pack(side=tk.LEFT, padx=2)
+        self.category_filter.bind('<<ComboboxSelected>>', lambda e: self._on_search_changed())
+
+        # 즐겨찾기 필터
+        self.favorite_filter_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(filter_frame, text="⭐", variable=self.favorite_filter_var,
+                       command=self._on_search_changed).pack(side=tk.LEFT, padx=2)
+
+        # 태그 필터
+        tag_filter_frame = ttk.Frame(self.left_panel)
+        tag_filter_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(tag_filter_frame, text="태그:").pack(side=tk.LEFT, padx=2)
+        self.tag_filter_var = tk.StringVar(value="전체")
+        self.tag_filter = ttk.Combobox(tag_filter_frame, textvariable=self.tag_filter_var,
+                                      width=15, state='readonly')
+        self._update_tag_filter_list()
+        self.tag_filter.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+        self.tag_filter.bind('<<ComboboxSelected>>', lambda e: self._on_search_changed())
+
+        # 구분선
+        ttk.Separator(self.left_panel, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=5, pady=5)
+
+        # 최근 실행 프로젝트 제목
+        recent_frame = ttk.Frame(self.left_panel)
+        recent_frame.pack(fill=tk.X, padx=5)
+        ttk.Label(recent_frame, text="최근 실행", font=("Arial", 9, "bold")).pack(side=tk.LEFT)
+        self.show_recent_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(recent_frame, text="표시", variable=self.show_recent_var,
+                       command=self._on_search_changed).pack(side=tk.LEFT, padx=5)
+
         # 프로젝트 목록 트리뷰
         self.project_tree = ttk.Treeview(self.left_panel, columns=("name", "actions"), show="tree headings")
         self.project_tree.heading("#0", text="프로젝트")
@@ -224,9 +275,24 @@ class MainWindow:
         
         self.project_desc_label = ttk.Label(self.project_info_frame, text="설명: ")
         self.project_desc_label.pack(anchor=tk.W, padx=5, pady=2)
-        
+
         self.project_actions_label = ttk.Label(self.project_info_frame, text="액션 수: 0개")
         self.project_actions_label.pack(anchor=tk.W, padx=5, pady=2)
+
+        # 태그 정보
+        tag_info_frame = ttk.Frame(self.project_info_frame)
+        tag_info_frame.pack(anchor=tk.W, padx=5, pady=2, fill=tk.X)
+        ttk.Label(tag_info_frame, text="태그:").pack(side=tk.LEFT)
+        self.project_tags_label = ttk.Label(tag_info_frame, text="없음")
+        self.project_tags_label.pack(side=tk.LEFT, padx=5)
+        ttk.Button(tag_info_frame, text="편집", command=self._edit_tags, width=5).pack(side=tk.LEFT)
+
+        # 실행 이력 정보
+        self.project_last_executed_label = ttk.Label(self.project_info_frame, text="마지막 실행: 없음")
+        self.project_last_executed_label.pack(anchor=tk.W, padx=5, pady=2)
+
+        self.project_execution_count_label = ttk.Label(self.project_info_frame, text="실행 횟수: 0회")
+        self.project_execution_count_label.pack(anchor=tk.W, padx=5, pady=2)
         
         # 액션 목록 프레임
         self.action_frame = ttk.LabelFrame(self.right_panel, text="액션 목록")
@@ -1183,26 +1249,51 @@ class MainWindow:
         # 기존 항목 삭제
         for item in self.project_tree.get_children():
             self.project_tree.delete(item)
-        
+
         # 프로젝트 목록 로드
-        projects = self.project_manager.get_all_projects()
-        
+        if self.show_recent_var.get():
+            # 최근 실행 프로젝트만 표시
+            projects = self.project_manager.get_recently_executed_projects(limit=10)
+        else:
+            # 검색 및 필터 적용
+            keyword = self.search_var.get()
+            category = self.category_filter_var.get()
+            category = None if category == "전체" else category
+            favorite_only = self.favorite_filter_var.get()
+
+            # 태그 필터
+            tag = self.tag_filter_var.get()
+            tags = None if tag == "전체" else [tag]
+
+            # 고급 검색
+            projects = self.project_manager.search_projects_advanced(
+                keyword=keyword,
+                tags=tags,
+                category=category,
+                favorite_only=favorite_only
+            )
+
         # 트리뷰에 추가
         for project in projects:
             # 즐겨찾기 아이콘
             icon = "⭐" if project.favorite else "📁"
-            
+
+            # 태그 표시
+            tag_text = ""
+            if project.tags:
+                tag_text = f" [{', '.join(project.tags[:2])}]"  # 최대 2개만 표시
+
             self.project_tree.insert(
-                "", 
-                "end", 
-                text=f"{icon} {project.name}",
+                "",
+                "end",
+                text=f"{icon} {project.name}{tag_text}",
                 values=(project.name, project.get_action_count()),
                 tags=(f"project_{project.id}",)
             )
-        
+
         # 상태바 업데이트
         stats = self.project_manager.get_project_statistics()
-        self.status_label.config(text=f"총 {stats['total_projects']}개 프로젝트, {stats['total_actions']}개 액션")
+        self.status_label.config(text=f"총 {stats['total_projects']}개 프로젝트, {stats['total_actions']}개 액션 (필터링: {len(projects)}개)")
     
     def _update_project_info(self):
         """프로젝트 정보 업데이트"""
@@ -1210,15 +1301,39 @@ class MainWindow:
             self.project_name_label.config(text=f"프로젝트명: {self.current_project.name}")
             self.project_desc_label.config(text=f"설명: {self.current_project.description}")
             self.project_actions_label.config(text=f"액션 수: {self.current_project.get_action_count()}개")
+
+            # 태그 정보 업데이트
+            if self.current_project.tags:
+                tags_str = ", ".join(self.current_project.tags)
+                self.project_tags_label.config(text=tags_str)
+            else:
+                self.project_tags_label.config(text="없음")
+
+            # 실행 이력 정보 업데이트
+            if self.current_project.last_executed_at:
+                from datetime import datetime
+                try:
+                    last_exec = datetime.fromisoformat(self.current_project.last_executed_at)
+                    last_exec_str = last_exec.strftime("%Y-%m-%d %H:%M:%S")
+                    self.project_last_executed_label.config(text=f"마지막 실행: {last_exec_str}")
+                except:
+                    self.project_last_executed_label.config(text="마지막 실행: 없음")
+            else:
+                self.project_last_executed_label.config(text="마지막 실행: 없음")
+
+            self.project_execution_count_label.config(text=f"실행 횟수: {self.current_project.execution_count}회")
         else:
             self._clear_project_info()
-    
+
     def _clear_project_info(self):
         """프로젝트 정보 초기화"""
         self.project_name_label.config(text="프로젝트명: 선택되지 않음")
         self.project_desc_label.config(text="설명: ")
         self.project_actions_label.config(text="액션 수: 0개")
-        
+        self.project_tags_label.config(text="없음")
+        self.project_last_executed_label.config(text="마지막 실행: 없음")
+        self.project_execution_count_label.config(text="실행 횟수: 0회")
+
         # 액션 목록도 초기화
         self._refresh_action_list()
     
@@ -1465,13 +1580,21 @@ class MainWindow:
         # 상태바 초기화
         self.status_label.config(text="준비")
         self.progress_bar['value'] = 0
-        
+
+        # 실행 이력 기록 (성공 시에만)
+        if success and self.current_project:
+            self.project_manager.record_project_execution(self.current_project.id)
+            # 프로젝트 정보 업데이트 (실행 이력 표시)
+            self._update_project_info()
+            # 프로젝트 목록 새로고침 (최근 실행 목록 갱신)
+            self._refresh_project_list()
+
         # 완료 메시지 표시
         if success:
             messagebox.showinfo("실행 완료", f"프로젝트 실행이 완료되었습니다.\n\n{message}")
         else:
             messagebox.showerror("실행 실패", f"프로젝트 실행에 실패했습니다.\n\n{message}")
-        
+
         # 메시지 확인 후 실행 버튼 상태 업데이트
         self._update_execution_buttons()
     
@@ -1753,6 +1876,106 @@ class MainWindow:
         self._select_action_by_id(source_action_id)
 
         self.status_label.config(text="액션 순서가 변경되었습니다")
+
+    # Priority 4: 데이터 관리 헬퍼 메서드
+    def _on_search_changed(self):
+        """검색 및 필터 변경 시 호출"""
+        self._refresh_project_list()
+
+    def _update_tag_filter_list(self):
+        """태그 필터 목록 업데이트"""
+        all_tags = self.project_manager.get_all_tags()
+        self.tag_filter['values'] = ["전체"] + all_tags
+
+    def _edit_tags(self):
+        """태그 편집 다이얼로그"""
+        if not self.current_project:
+            messagebox.showinfo("알림", "태그를 편집할 프로젝트를 선택해주세요.")
+            return
+
+        # 태그 편집 다이얼로그 생성
+        dialog = tk.Toplevel(self.root)
+        dialog.title("태그 편집")
+        dialog.geometry("400x300")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # 메인 프레임
+        main_frame = ttk.Frame(dialog, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 현재 태그 목록
+        ttk.Label(main_frame, text="현재 태그:", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=5)
+
+        # 태그 리스트박스
+        tag_frame = ttk.Frame(main_frame)
+        tag_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        tag_listbox = tk.Listbox(tag_frame, height=8)
+        tag_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        tag_scrollbar = ttk.Scrollbar(tag_frame, orient=tk.VERTICAL, command=tag_listbox.yview)
+        tag_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        tag_listbox.configure(yscrollcommand=tag_scrollbar.set)
+
+        # 현재 태그 표시
+        for tag in self.current_project.tags:
+            tag_listbox.insert(tk.END, tag)
+
+        # 태그 추가/삭제 프레임
+        input_frame = ttk.Frame(main_frame)
+        input_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(input_frame, text="새 태그:").pack(side=tk.LEFT, padx=2)
+        tag_entry = ttk.Entry(input_frame)
+        tag_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        def add_tag():
+            tag = tag_entry.get().strip()
+            if not tag:
+                messagebox.showwarning("경고", "태그를 입력해주세요.")
+                return
+
+            if self.current_project.add_tag(tag):
+                tag_listbox.insert(tk.END, tag)
+                tag_entry.delete(0, tk.END)
+                self.project_manager.update_project(self.current_project)
+            else:
+                messagebox.showwarning("경고", "이미 존재하는 태그입니다.")
+
+        def remove_tag():
+            selection = tag_listbox.curselection()
+            if not selection:
+                messagebox.showwarning("경고", "삭제할 태그를 선택해주세요.")
+                return
+
+            tag = tag_listbox.get(selection[0])
+            if self.current_project.remove_tag(tag):
+                tag_listbox.delete(selection[0])
+                self.project_manager.update_project(self.current_project)
+
+        ttk.Button(input_frame, text="추가", command=add_tag, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Button(input_frame, text="삭제", command=remove_tag, width=6).pack(side=tk.LEFT, padx=2)
+
+        # 완료 버튼
+        def on_close():
+            # 태그 필터 목록 업데이트
+            self._update_tag_filter_list()
+            # 프로젝트 정보 업데이트
+            self._update_project_info()
+            # 프로젝트 목록 새로고침
+            self._refresh_project_list()
+            dialog.destroy()
+
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=10)
+        ttk.Button(button_frame, text="완료", command=on_close).pack()
+
+        # Enter 키로 태그 추가
+        tag_entry.bind('<Return>', lambda e: add_tag())
+
+        # 다이얼로그 포커스
+        tag_entry.focus()
 
     def run(self):
         """애플리케이션 실행"""

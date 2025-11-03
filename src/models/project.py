@@ -11,7 +11,7 @@ import json
 @dataclass
 class Project:
     """프로젝트 데이터 모델"""
-    
+
     id: int
     name: str
     description: str
@@ -20,7 +20,10 @@ class Project:
     created_at: str = None
     updated_at: str = None
     actions: List[Dict] = None
-    
+    tags: List[str] = None  # 태그 목록
+    last_executed_at: str = None  # 마지막 실행 시간
+    execution_count: int = 0  # 실행 횟수
+
     def __post_init__(self):
         """초기화 후 처리"""
         if self.created_at is None:
@@ -29,6 +32,8 @@ class Project:
             self.updated_at = datetime.now().isoformat()
         if self.actions is None:
             self.actions = []
+        if self.tags is None:
+            self.tags = []
     
     def to_dict(self) -> Dict:
         """딕셔너리로 변환"""
@@ -157,5 +162,63 @@ class Project:
                 self.actions[i] = updated_action
                 self.update_timestamp()
                 return True
-        
-        return False 
+
+        return False
+
+    # 태그 관리 메서드
+    def add_tag(self, tag: str) -> bool:
+        """
+        태그 추가
+
+        Args:
+            tag: 추가할 태그
+
+        Returns:
+            성공 여부 (중복 시 False)
+        """
+        tag = tag.strip()
+        if not tag or tag in self.tags:
+            return False
+
+        self.tags.append(tag)
+        self.update_timestamp()
+        return True
+
+    def remove_tag(self, tag: str) -> bool:
+        """
+        태그 제거
+
+        Args:
+            tag: 제거할 태그
+
+        Returns:
+            성공 여부
+        """
+        if tag in self.tags:
+            self.tags.remove(tag)
+            self.update_timestamp()
+            return True
+        return False
+
+    def has_tag(self, tag: str) -> bool:
+        """태그 포함 여부 확인"""
+        return tag in self.tags
+
+    def get_tags(self) -> List[str]:
+        """태그 목록 반환"""
+        return self.tags.copy()
+
+    # 실행 이력 메서드
+    def record_execution(self):
+        """실행 기록 업데이트"""
+        self.last_executed_at = datetime.now().isoformat()
+        self.execution_count += 1
+        self.update_timestamp()
+
+    def get_last_executed(self) -> Optional[str]:
+        """마지막 실행 시간 반환"""
+        return self.last_executed_at
+
+    def get_execution_count(self) -> int:
+        """실행 횟수 반환"""
+        return self.execution_count 

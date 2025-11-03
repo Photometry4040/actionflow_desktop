@@ -277,18 +277,124 @@ class ProjectManager:
         """프로젝트 가져오기"""
         return self.data_manager.import_project(import_path)
     
+    # 태그 관리
+    def get_all_tags(self) -> List[str]:
+        """
+        모든 태그 반환 (중복 제거)
+
+        Returns:
+            태그 목록
+        """
+        all_projects = self.get_all_projects()
+        all_tags = set()
+        for project in all_projects:
+            all_tags.update(project.tags)
+        return sorted(list(all_tags))
+
+    def filter_projects_by_tag(self, tag: str) -> List[Project]:
+        """
+        태그별 프로젝트 필터링
+
+        Args:
+            tag: 태그
+
+        Returns:
+            필터링된 프로젝트 목록
+        """
+        all_projects = self.get_all_projects()
+        return [p for p in all_projects if p.has_tag(tag)]
+
+    def search_projects_advanced(self, keyword: str = "", tags: List[str] = None,
+                                 category: str = None, favorite_only: bool = False) -> List[Project]:
+        """
+        향상된 프로젝트 검색
+
+        Args:
+            keyword: 검색 키워드
+            tags: 필터링할 태그 목록
+            category: 필터링할 카테고리
+            favorite_only: 즐겨찾기만 검색
+
+        Returns:
+            검색 결과 프로젝트 목록
+        """
+        all_projects = self.get_all_projects()
+        results = all_projects
+
+        # 키워드 검색
+        if keyword and keyword.strip():
+            keyword = keyword.lower().strip()
+            results = [p for p in results if (
+                keyword in p.name.lower() or
+                keyword in p.description.lower() or
+                keyword in p.category.lower() or
+                any(keyword in tag.lower() for tag in p.tags)
+            )]
+
+        # 태그 필터링
+        if tags:
+            results = [p for p in results if any(p.has_tag(tag) for tag in tags)]
+
+        # 카테고리 필터링
+        if category and category != "전체":
+            results = [p for p in results if p.category == category]
+
+        # 즐겨찾기 필터링
+        if favorite_only:
+            results = [p for p in results if p.favorite]
+
+        return results
+
+    # 최근 실행 프로젝트
+    def get_recently_executed_projects(self, limit: int = 10) -> List[Project]:
+        """
+        최근 실행한 프로젝트 목록
+
+        Args:
+            limit: 반환할 최대 개수
+
+        Returns:
+            최근 실행 프로젝트 목록
+        """
+        all_projects = self.get_all_projects()
+
+        # last_executed_at이 있는 프로젝트만 필터링
+        executed_projects = [p for p in all_projects if p.last_executed_at]
+
+        # 마지막 실행 시간 기준 정렬 (최신순)
+        executed_projects.sort(key=lambda p: p.last_executed_at, reverse=True)
+
+        return executed_projects[:limit]
+
+    def record_project_execution(self, project_id: int) -> bool:
+        """
+        프로젝트 실행 기록
+
+        Args:
+            project_id: 실행한 프로젝트 ID
+
+        Returns:
+            성공 여부
+        """
+        project = self.get_project_by_id(project_id)
+        if not project:
+            return False
+
+        project.record_execution()
+        return self.update_project(project)
+
     # 카테고리 관리
     def get_all_categories(self) -> List[str]:
         """모든 카테고리 반환"""
         return self.data_manager.get_categories()
-    
+
     def add_category(self, category: str) -> bool:
         """
         새 카테고리 추가
-        
+
         Args:
             category: 추가할 카테고리명
-        
+
         Returns:
             성공 여부
         """
