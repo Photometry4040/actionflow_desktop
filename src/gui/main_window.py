@@ -106,7 +106,8 @@ class MainWindow:
         self.edit_menu.add_separator()
         self.edit_menu.add_command(label="액션 복사", command=self._copy_action, accelerator="Ctrl+C")
         self.edit_menu.add_command(label="액션 붙여넣기", command=self._paste_action, accelerator="Ctrl+V")
-        self.edit_menu.add_command(label="삭제", command=self._delete, accelerator="Del")
+        self.edit_menu.add_command(label="액션 삭제", command=self._delete_action, accelerator="Del")
+        self.edit_menu.add_command(label="확인 없이 삭제", command=lambda: self._delete_action(skip_confirm=True), accelerator="Shift+Del")
         
         # 실행 메뉴
         self.run_menu = tk.Menu(self.menu_bar, tearoff=0)
@@ -313,6 +314,9 @@ class MainWindow:
         self.project_tree.bind('<<TreeviewSelect>>', self._on_project_select)
         self.action_tree.bind('<<TreeviewSelect>>', self._on_action_select)
         self.action_tree.bind('<Double-1>', self._on_action_double_click)
+        self.action_tree.bind('<Delete>', lambda e: self._delete_action())  # Delete 키로 삭제
+        self.action_tree.bind('<Shift-Delete>', lambda e: self._delete_action(skip_confirm=True))  # 확인 없이 삭제
+        self.action_tree.bind('<Button-3>', self._show_action_context_menu)  # 우클릭 메뉴
 
         # 드래그 앤 드롭 이벤트
         self.action_tree.bind('<Button-1>', self._on_drag_start)
@@ -1236,44 +1240,79 @@ class MainWindow:
                         self._refresh_project_list()
                 break
     
-    def _delete_action(self):
+    def _delete_action(self, skip_confirm=False):
         """액션 삭제"""
         if not self.current_project:
-            messagebox.showinfo("알림", "삭제할 프로젝트를 선택해주세요.")
+            if not skip_confirm:
+                messagebox.showinfo("알림", "삭제할 프로젝트를 선택해주세요.")
             return
-        
+
         # 선택된 액션 확인
         selection = self.action_tree.selection()
         if not selection:
-            messagebox.showinfo("알림", "삭제할 액션을 선택해주세요.")
+            if not skip_confirm:
+                messagebox.showinfo("알림", "삭제할 액션을 선택해주세요.")
             return
-        
+
         # 선택된 액션 찾기
         item = selection[0]
         tags = self.action_tree.item(item, "tags")
-        
+
         for tag in tags:
             if tag.startswith("action_"):
                 action_id = int(tag.split("_")[1])
                 action = self.current_project.get_action_by_id(action_id)
-                
+
                 if action:
-                    # 삭제 확인
-                    result = messagebox.askyesno(
-                        "액션 삭제", 
-                        f"액션 '{action.get('description', '')}'을(를) 삭제하시겠습니까?"
-                    )
-                    
+                    # 삭제 확인 (skip_confirm이 True면 확인 생략)
+                    if not skip_confirm:
+                        result = messagebox.askyesno(
+                            "액션 삭제",
+                            f"액션 '{action.get('description', '')}'을(를) 삭제하시겠습니까?"
+                        )
+                    else:
+                        result = True
+
                     if result:
                         # 액션 삭제
                         self.current_project.remove_action(action_id)
                         self.data_manager.save_project(self.current_project)
-                        
+
                         # UI 업데이트
                         self._refresh_action_list()
                         self._update_project_info()
                         self._refresh_project_list()
+
+                        self.status_label.config(text=f"액션 삭제됨: {action.get('description', '')}")
                 break
+
+    def _show_action_context_menu(self, event):
+        """액션 우클릭 컨텍스트 메뉴"""
+        if not self.current_project:
+            return
+
+        # 우클릭한 항목 선택
+        item = self.action_tree.identify_row(event.y)
+        if item:
+            self.action_tree.selection_set(item)
+
+            # 컨텍스트 메뉴 생성
+            context_menu = tk.Menu(self.root, tearoff=0)
+            context_menu.add_command(label="액션 편집", command=self._edit_action)
+            context_menu.add_command(label="액션 복사 (Ctrl+C)", command=self._copy_action)
+            context_menu.add_command(label="액션 붙여넣기 (Ctrl+V)", command=self._paste_action)
+            context_menu.add_separator()
+            context_menu.add_command(label="위로 이동", command=self._move_action_up)
+            context_menu.add_command(label="아래로 이동", command=self._move_action_down)
+            context_menu.add_separator()
+            context_menu.add_command(label="액션 삭제 (Delete)", command=lambda: self._delete_action(skip_confirm=False))
+            context_menu.add_command(label="확인 없이 삭제 (Shift+Delete)", command=lambda: self._delete_action(skip_confirm=True))
+
+            # 마우스 위치에 메뉴 표시
+            try:
+                context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                context_menu.grab_release()
     
     def _move_action_up(self):
         """액션 위로 이동"""
