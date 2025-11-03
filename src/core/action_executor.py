@@ -708,9 +708,15 @@ class ActionExecutor:
             'average_action_time': 0.0
         }
 
-        # 진행률 계산
+        # 진행률 계산 (현재 실행 중인 액션 포함)
         if self.total_actions > 0:
-            status['progress_percent'] = (self.current_action_index / self.total_actions) * 100
+            if self.is_running:
+                # current_action_index는 0부터 시작하므로 +1 필요
+                # 예: 10개 중 첫 번째 액션 실행 시 (0 + 1) / 10 = 10%
+                status['progress_percent'] = ((self.current_action_index + 1) / self.total_actions) * 100
+            else:
+                # 실행이 중지된 경우 마지막 완료된 액션까지만 계산
+                status['progress_percent'] = (self.current_action_index / self.total_actions) * 100
 
         # 경과 시간 계산
         if self.start_time is not None:

@@ -24,7 +24,7 @@ class ExecutionStatusDialog:
         self.parent = parent
         self.action_executor = action_executor
         self.update_interval = 200  # 200ms마다 업데이트
-        self.start_time = None
+        self.update_timer_id = None  # 타이머 ID 저장
 
         # 다이얼로그 생성
         self.dialog = tk.Toplevel(parent)
@@ -231,13 +231,19 @@ class ExecutionStatusDialog:
             # 상세 정보 업데이트
             self._update_details(status)
 
-            # 다음 업데이트 예약
-            self.dialog.after(self.update_interval, self._update_status)
-
         except Exception as e:
-            # 에러 발생 시 업데이트 중단
+            # 에러 발생 시에도 상태는 표시
             self.status_value.config(text="오류", foreground="red")
             self._log_detail(f"상태 업데이트 오류: {str(e)}")
+
+        finally:
+            # 다음 업데이트 예약 (에러 발생 시에도 계속 업데이트)
+            # 다이얼로그가 존재하는 경우에만 타이머 예약
+            try:
+                self.update_timer_id = self.dialog.after(self.update_interval, self._update_status)
+            except tk.TclError:
+                # 다이얼로그가 이미 파괴된 경우 무시
+                pass
 
     def _update_details(self, status: Dict):
         """상세 정보 업데이트"""
@@ -268,10 +274,25 @@ class ExecutionStatusDialog:
 
     def _manual_refresh(self):
         """수동 새로고침"""
+        # 현재 타이머 취소 후 즉시 업데이트
+        if self.update_timer_id is not None:
+            try:
+                self.dialog.after_cancel(self.update_timer_id)
+                self.update_timer_id = None
+            except tk.TclError:
+                pass
         self._update_status()
 
     def _close(self):
         """다이얼로그 닫기"""
+        # 타이머 취소
+        if self.update_timer_id is not None:
+            try:
+                self.dialog.after_cancel(self.update_timer_id)
+                self.update_timer_id = None
+            except tk.TclError:
+                pass
+        # 다이얼로그 파괴
         self.dialog.destroy()
 
     def show(self):
