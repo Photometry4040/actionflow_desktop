@@ -1503,11 +1503,16 @@ class MainWindow:
         # 액션 이동
         action = self.current_project.actions.pop(drag_index)
 
-        # 드래그한 항목이 위에서 아래로 이동한 경우, target_index 조정
+        # 타겟 다음 위치에 삽입
+        # 드래그한 항목이 위에서 아래로 이동한 경우
         if drag_index < target_index:
-            target_index -= 1
+            # pop으로 제거했으므로 인덱스가 1 감소함
+            insert_index = target_index  # 타겟 다음 위치
+        else:
+            # 아래에서 위로 이동하는 경우
+            insert_index = target_index + 1  # 타겟 다음 위치
 
-        self.current_project.actions.insert(target_index, action)
+        self.current_project.actions.insert(insert_index, action)
 
         # order_index 재정렬
         self.current_project.reorder_actions()
