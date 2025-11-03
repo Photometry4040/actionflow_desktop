@@ -238,21 +238,43 @@ class MacroRecorder:
             else:
                 # 특수 키
                 key_name = str(key).replace('Key.', '')
-                
+
                 # 일반적인 키 조합 처리
                 if key_name in ['ctrl', 'alt', 'shift', 'cmd']:
                     self.current_keys.add(key_name)
                 else:
-                    # 단일 특수 키
-                    action = {
-                        'action_type': 'key_combination',
-                        'description': f'키 입력: {key_name}',
-                        'parameters': {
-                            'keys': key_name
-                        },
-                        'timestamp': current_time - self.start_time
-                    }
-                    self._add_action(action)
+                    # 단일 특수 키 - Delete, Backspace 등은 key_press로 기록
+                    common_keys = ['delete', 'backspace', 'enter', 'tab', 'esc', 'space',
+                                   'home', 'end', 'page_up', 'page_down',
+                                   'up', 'down', 'left', 'right', 'insert']
+
+                    # F1-F12 키도 포함
+                    for i in range(1, 13):
+                        common_keys.append(f'f{i}')
+
+                    if key_name in common_keys:
+                        # key_press 타입으로 기록
+                        action = {
+                            'action_type': 'key_press',
+                            'description': f'키 입력: {key_name}',
+                            'parameters': {
+                                'key': key_name,
+                                'count': 1
+                            },
+                            'timestamp': current_time - self.start_time
+                        }
+                        self._add_action(action)
+                    else:
+                        # 기타 특수 키는 key_combination으로 기록
+                        action = {
+                            'action_type': 'key_combination',
+                            'description': f'키 조합: {key_name}',
+                            'parameters': {
+                                'keys': key_name
+                            },
+                            'timestamp': current_time - self.start_time
+                        }
+                        self._add_action(action)
             
             self.last_key_time = current_time
             

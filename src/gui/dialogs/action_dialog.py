@@ -76,8 +76,9 @@ class ActionDialog:
         )
         self.action_type_combo['values'] = [
             "마우스 이동",
-            "마우스 클릭", 
+            "마우스 클릭",
             "키보드 입력",
+            "키 입력",
             "지연 시간",
             "복사",
             "붙여넣기",
@@ -147,6 +148,8 @@ class ActionDialog:
             self._create_mouse_click_widgets()
         elif action_type == "키보드 입력":
             self._create_keyboard_widgets()
+        elif action_type == "키 입력":
+            self._create_key_press_widgets()
         elif action_type == "지연 시간":
             self._create_delay_widgets()
         elif action_type == "복사":
@@ -265,11 +268,53 @@ class ActionDialog:
         self.param_widgets['keys'] = ttk.Entry(self.param_frame, width=30)
         self.param_widgets['keys'].insert(0, "ctrl+c")
         self.param_widgets['keys'].grid(row=0, column=1, sticky=(tk.W, tk.E), padx=(10, 0), pady=5)
-        
+
         # 예시
-        ttk.Label(self.param_frame, text="예시: ctrl+c, ctrl+v, alt+tab", 
+        ttk.Label(self.param_frame, text="예시: ctrl+c, ctrl+v, alt+tab",
                  font=("", 9), foreground="gray").grid(row=1, column=1, sticky=tk.W, padx=(10, 0), pady=2)
-    
+
+    def _create_key_press_widgets(self):
+        """키 입력 파라미터 위젯"""
+        # 입력할 키
+        ttk.Label(self.param_frame, text="입력할 키:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.param_widgets['key'] = ttk.Combobox(
+            self.param_frame,
+            values=[
+                "delete",
+                "backspace",
+                "enter",
+                "tab",
+                "esc",
+                "space",
+                "home",
+                "end",
+                "pageup",
+                "pagedown",
+                "up",
+                "down",
+                "left",
+                "right",
+                "insert",
+                "f1", "f2", "f3", "f4", "f5", "f6",
+                "f7", "f8", "f9", "f10", "f11", "f12"
+            ],
+            width=20,
+            state="normal"
+        )
+        self.param_widgets['key'].set("delete")
+        self.param_widgets['key'].grid(row=0, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+
+        # 입력 횟수
+        ttk.Label(self.param_frame, text="입력 횟수:").grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.param_widgets['count'] = ttk.Entry(self.param_frame, width=10)
+        self.param_widgets['count'].insert(0, "1")
+        self.param_widgets['count'].grid(row=1, column=1, sticky=tk.W, padx=(10, 0), pady=5)
+
+        # 도움말 텍스트
+        help_text = "Delete: 커서 뒤 문자 삭제, Backspace: 커서 앞 문자 삭제"
+        ttk.Label(self.param_frame, text=help_text,
+                 font=("", 9), foreground="gray").grid(row=2, column=1, sticky=tk.W, padx=(10, 0), pady=2)
+
     def _load_action_data(self):
         """액션 데이터 로드"""
         if self.action:
@@ -310,6 +355,7 @@ class ActionDialog:
             'mouse_move': '마우스 이동',
             'mouse_click': '마우스 클릭',
             'keyboard_type': '키보드 입력',
+            'key_press': '키 입력',
             'delay': '지연 시간',
             'clipboard_copy': '복사',
             'clipboard_paste': '붙여넣기',
@@ -323,6 +369,7 @@ class ActionDialog:
             '마우스 이동': 'mouse_move',
             '마우스 클릭': 'mouse_click',
             '키보드 입력': 'keyboard_type',
+            '키 입력': 'key_press',
             '지연 시간': 'delay',
             '복사': 'clipboard_copy',
             '붙여넣기': 'clipboard_paste',
@@ -492,7 +539,22 @@ class ActionDialog:
                 keys = self.param_widgets['keys'].get().strip()
                 if not keys:
                     raise ValueError("키 조합을 입력해주세요.")
-            
+
+            elif action_type == "키 입력":
+                key = self.param_widgets['key'].get().strip()
+                if not key:
+                    raise ValueError("입력할 키를 선택해주세요.")
+                try:
+                    count = int(self.param_widgets['count'].get())
+                    if count < 1:
+                        raise ValueError("입력 횟수는 1 이상이어야 합니다.")
+                    if count > 100:
+                        raise ValueError("입력 횟수는 100 이하여야 합니다.")
+                except ValueError as e:
+                    if "입력 횟수" in str(e):
+                        raise
+                    raise ValueError("입력 횟수는 숫자로 입력해주세요.")
+
             return True
             
         except ValueError as e:
@@ -533,7 +595,11 @@ class ActionDialog:
             
         elif action_type == "키 조합":
             parameters['keys'] = self.param_widgets['keys'].get().strip()
-        
+
+        elif action_type == "키 입력":
+            parameters['key'] = self.param_widgets['key'].get().strip()
+            parameters['count'] = int(self.param_widgets['count'].get())
+
         return parameters
     
     def _save_action(self):
