@@ -27,10 +27,26 @@ class Settings:
     auto_backup: bool = True
     backup_interval: int = 7  # 일
     
+    # 실행 확인/알림 설정
+    execution_confirm: bool = True
+    execution_notify: bool = True
+
+    # UI 추가 설정
+    primary_color: str = "#2563eb"
+    font_size: str = "normal"  # "small", "normal", "large"
+    window_size: str = "1200x800"
+
+    # 데이터 추가 설정
+    auto_save_interval: int = 300  # 초 (5분)
+    backup_retention: int = 30  # 일 (-1 = 무제한)
+
     # 고급 설정
     enable_logging: bool = True
+    logging: bool = True  # enable_logging 별칭 (settings_dialog 호환)
     log_level: str = "INFO"  # "DEBUG", "INFO", "WARNING", "ERROR"
     max_history: int = 100
+    developer_mode: bool = False
+    experimental_features: bool = False
 
     # 최근 실행 프로젝트 (최대 10개)
     recent_projects: list = None
@@ -39,6 +55,11 @@ class Settings:
         """초기화 후 처리"""
         if self.recent_projects is None:
             self.recent_projects = []
+        # logging과 enable_logging 양방향 동기화
+        # 둘 중 하나라도 False이면 False로 통일
+        if not self.logging or not self.enable_logging:
+            self.logging = False
+            self.enable_logging = False
     
     def to_dict(self) -> Dict:
         """딕셔너리로 변환"""
@@ -50,8 +71,11 @@ class Settings:
     
     @classmethod
     def from_dict(cls, data: Dict) -> 'Settings':
-        """딕셔너리에서 설정 생성"""
-        return cls(**data)
+        """딕셔너리에서 설정 생성 (extra/missing 키 안전 처리)"""
+        import dataclasses
+        valid_fields = {f.name for f in dataclasses.fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered)
     
     @classmethod
     def from_json(cls, json_str: str) -> 'Settings':

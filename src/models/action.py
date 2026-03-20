@@ -47,8 +47,11 @@ class Action:
     
     @classmethod
     def from_dict(cls, data: Dict) -> 'Action':
-        """딕셔너리에서 액션 생성"""
-        return cls(**data)
+        """딕셔너리에서 액션 생성 (extra 키 안전 처리)"""
+        import dataclasses
+        valid_fields = {f.name for f in dataclasses.fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered)
     
     @classmethod
     def from_json(cls, json_str: str) -> 'Action':
