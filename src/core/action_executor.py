@@ -26,9 +26,13 @@ class ActionExecutor:
     
     def __init__(self):
         """초기화"""
-        self.is_running = False
-        self.is_paused = False
-        self.should_stop = False
+        # 스레드 동기화를 위한 Lock 및 Event
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
+        self._pause_event.set()  # 초기 상태: 일시정지 아님 (set = 실행 가능)
+
+        self._is_running = False
         self.current_action_index = 0
         self.execution_thread = None
         self.on_progress_callback = None
@@ -54,6 +58,38 @@ class ActionExecutor:
         pyautogui.FAILSAFE = True
         pyautogui.PAUSE = 0.1
 
+    @property
+    def is_running(self) -> bool:
+        with self._lock:
+            return self._is_running
+
+    @is_running.setter
+    def is_running(self, value: bool):
+        with self._lock:
+            self._is_running = value
+
+    @property
+    def is_paused(self) -> bool:
+        return not self._pause_event.is_set()
+
+    @is_paused.setter
+    def is_paused(self, value: bool):
+        if value:
+            self._pause_event.clear()
+        else:
+            self._pause_event.set()
+
+    @property
+    def should_stop(self) -> bool:
+        return self._stop_event.is_set()
+
+    @should_stop.setter
+    def should_stop(self, value: bool):
+        if value:
+            self._stop_event.set()
+        else:
+            self._stop_event.clear()
+
         # ESC 키로 중단 설정 (macOS에서는 관리자 권한 필요하므로 제거)
         # keyboard.on_press_key('esc', self._emergency_stop)
     
@@ -75,28 +111,33 @@ class ActionExecutor:
         """
         if self.is_running:
             return False
-        
+
+        # 이전 스레드가 남아있으면 정리
+        if self.execution_thread is not None and self.execution_thread.is_alive():
+            self.execution_thread.join(timeout=2.0)
+
         self.on_progress_callback = on_progress
         self.on_complete_callback = on_complete
         self.on_error_callback = on_error
-        
-        # 실행 스레드 시작
+
+        # 실행 스레드 시작 (daemon=False로 안전한 종료 보장)
         self.execution_thread = threading.Thread(
             target=self._execute_project_thread,
-            args=(project,)
+            args=(project,),
+            name="ActionExecutor-Thread"
         )
-        self.execution_thread.daemon = True
+        self.execution_thread.daemon = False
         self.execution_thread.start()
-        
+
         return True
     
     def _execute_project_thread(self, project: Project):
         """프로젝트 실행 스레드"""
         try:
             logger.info(f"프로젝트 실행 시작: {project.name} (ID: {project.id})")
+            self._stop_event.clear()
+            self._pause_event.set()
             self.is_running = True
-            self.is_paused = False
-            self.should_stop = False
             self.current_action_index = 0
 
             actions = project.actions
@@ -120,9 +161,10 @@ class ActionExecutor:
                     logger.info("사용자 요청으로 실행 중단")
                     break
 
-                # 일시정지 확인
-                while self.is_paused and not self.should_stop:
-                    time.sleep(0.1)
+                # 일시정지 확인 (Event.wait으로 효율적 대기)
+                while not self._pause_event.is_set():
+                    if self._stop_event.wait(timeout=0.1):
+                        break
 
                 if self.should_stop:
                     logger.info("사용자 요청으로 실행 중단")
@@ -180,8 +222,8 @@ class ActionExecutor:
         finally:
             logger.debug("실행 스레드 종료")
             self.is_running = False
-            self.is_paused = False
-            self.should_stop = False
+            self._pause_event.set()
+            self._stop_event.clear()
             self.current_action_index = 0
             self.total_actions = 0
             self.start_time = None
@@ -561,18 +603,27 @@ class ActionExecutor:
 
     def stop_execution(self):
         """실행 중지"""
-        self.should_stop = True
-        self.is_paused = False
-    
+        self._stop_event.set()
+        self._pause_event.set()  # 일시정지 상태에서도 즉시 깨워서 중단
+
     def pause_execution(self):
         """실행 일시정지"""
         if self.is_running:
-            self.is_paused = True
-    
+            self._pause_event.clear()
+
     def resume_execution(self):
         """실행 재개"""
-        self.is_paused = False
+        self._pause_event.set()
     
+    def cleanup(self, timeout: float = 3.0):
+        """실행 스레드를 안전하게 정리 (앱 종료 시 호출)"""
+        if self.is_running:
+            self.stop_execution()
+        if self.execution_thread is not None and self.execution_thread.is_alive():
+            self.execution_thread.join(timeout=timeout)
+            if self.execution_thread.is_alive():
+                logger.warning("실행 스레드가 타임아웃 내에 종료되지 않았습니다")
+
     def _emergency_stop(self, e):
         """긴급 중지 (ESC 키)"""
         if self.is_running:

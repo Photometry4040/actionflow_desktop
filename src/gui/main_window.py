@@ -493,6 +493,8 @@ class MainWindow:
     def _quit_app(self):
         """애플리케이션 종료"""
         if messagebox.askokcancel("종료", "정말로 종료하시겠습니까?"):
+            # 실행 중인 스레드 안전하게 정리
+            self.action_executor.cleanup()
             self.root.quit()
             sys.exit()
     
@@ -1688,7 +1690,7 @@ class MainWindow:
         self.status_label.config(text=progress_text)
         
         # 진행률 표시
-        progress_percent = (current_action / total_actions) * 100
+        progress_percent = (current_action / total_actions) * 100 if total_actions > 0 else 0
         self.progress_bar['value'] = progress_percent
         
         # UI 업데이트
@@ -1732,20 +1734,23 @@ class MainWindow:
         self._update_execution_buttons()
     
     def _on_action_recorded(self, action: Dict):
-        """액션 녹화 콜백"""
-        # 상태바 업데이트
+        """액션 녹화 콜백 (보조 스레드에서 호출됨)"""
+        # 메인 스레드에서 UI 업데이트 실행
+        self.root.after(0, self._handle_action_recorded, action)
+
+    def _handle_action_recorded(self, action: Dict):
+        """액션 녹화 처리 (메인 스레드)"""
         action_type = action.get('action_type', '')
         self.status_label.config(text=f"액션 녹화됨: {action_type}")
-        
-        # UI 업데이트
-        self.root.update_idletasks()
-    
+
     def _on_recording_stopped(self, recorded_actions: List[Dict]):
-        """녹화 중지 콜백"""
-        # 상태바 초기화
+        """녹화 중지 콜백 (보조 스레드에서 호출됨)"""
+        # 메인 스레드에서 UI 업데이트 실행
+        self.root.after(0, self._handle_recording_stopped, recorded_actions)
+
+    def _handle_recording_stopped(self, recorded_actions: List[Dict]):
+        """녹화 중지 처리 (메인 스레드)"""
         self.status_label.config(text="녹화 완료")
-        
-        # 녹화 버튼 상태 업데이트
         self._update_recording_button()
     
     def _update_execution_buttons(self):
