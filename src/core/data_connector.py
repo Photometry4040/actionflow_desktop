@@ -24,6 +24,9 @@ except ImportError:
 class DataConnector:
     """Excel/CSV 데이터 연동 클래스"""
 
+    # 허용되는 파일 확장자
+    ALLOWED_EXTENSIONS = {'.xlsx', '.xls', '.csv'}
+
     def __init__(self):
         """초기화"""
         self.current_data = None
@@ -32,6 +35,45 @@ class DataConnector:
 
         if not PANDAS_AVAILABLE:
             logger.error("Pandas가 설치되지 않아 Excel/CSV 기능을 사용할 수 없습니다")
+
+    @staticmethod
+    def _validate_file_path(file_path: Path) -> Path:
+        """
+        파일 경로 검증 (경로 순회 공격 방지)
+
+        Args:
+            file_path: 검증할 파일 경로
+
+        Returns:
+            정규화된 안전한 파일 경로
+
+        Raises:
+            ValueError: 안전하지 않은 경로인 경우
+        """
+        resolved = file_path.resolve()
+
+        # 심볼릭 링크 검사
+        if file_path.is_symlink():
+            raise ValueError(f"심볼릭 링크는 허용되지 않습니다: {file_path}")
+
+        # 경로 순회 패턴 검사 (.. 포함 여부)
+        try:
+            # 원본 경로의 parts에 '..'이 있으면 경로 순회 시도
+            if '..' in file_path.parts:
+                raise ValueError(f"경로 순회가 감지되었습니다: {file_path}")
+        except (TypeError, ValueError) as e:
+            if "경로 순회" in str(e):
+                raise
+            raise ValueError(f"잘못된 파일 경로입니다: {file_path}")
+
+        # 확장자 검사
+        if resolved.suffix.lower() not in DataConnector.ALLOWED_EXTENSIONS:
+            raise ValueError(
+                f"지원하지 않는 파일 형식: {resolved.suffix} "
+                f"(허용: {', '.join(DataConnector.ALLOWED_EXTENSIONS)})"
+            )
+
+        return resolved
 
     def load_data(
         self,
@@ -56,6 +98,13 @@ class DataConnector:
 
         try:
             file_path = Path(file_path)
+
+            # 경로 검증 (경로 순회 공격 방지)
+            try:
+                file_path = self._validate_file_path(file_path)
+            except ValueError as e:
+                logger.error(f"파일 경로 검증 실패: {e}")
+                return False
 
             if not file_path.exists():
                 logger.error(f"파일이 존재하지 않습니다: {file_path}")

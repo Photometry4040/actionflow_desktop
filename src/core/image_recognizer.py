@@ -27,10 +27,13 @@ except ImportError:
 class ImageRecognizer:
     """이미지 인식 및 템플릿 매칭 클래스"""
 
+    MAX_CACHE_SIZE = 50  # 최대 캐시 항목 수
+
     def __init__(self):
         """초기화"""
         self.last_screenshot = None
         self.template_cache = {}  # 템플릿 이미지 캐시
+        self._cache_order = []  # 캐시 삽입 순서 (LRU 대신 FIFO로 단순 구현)
 
         if not OPENCV_AVAILABLE:
             logger.error("OpenCV가 설치되지 않아 이미지 인식 기능을 사용할 수 없습니다")
@@ -314,8 +317,15 @@ class ImageRecognizer:
                 logger.error(f"템플릿 이미지 로드 실패: {template_path}")
                 return None
 
+            # 캐시 크기 제한 적용 (FIFO 방식으로 오래된 항목 제거)
+            if len(self.template_cache) >= self.MAX_CACHE_SIZE:
+                oldest_key = self._cache_order.pop(0)
+                self.template_cache.pop(oldest_key, None)
+                logger.debug(f"캐시 초과로 오래된 템플릿 제거: {oldest_key}")
+
             # 캐시에 저장
             self.template_cache[template_path] = template
+            self._cache_order.append(template_path)
             logger.debug(f"템플릿 로드 완료: {template_path}, 크기: {template.shape}")
 
             return template
@@ -327,6 +337,7 @@ class ImageRecognizer:
     def clear_cache(self):
         """템플릿 이미지 캐시 초기화"""
         self.template_cache.clear()
+        self._cache_order.clear()
         logger.debug("템플릿 캐시 초기화 완료")
 
     def get_screen_size(self) -> Tuple[int, int]:

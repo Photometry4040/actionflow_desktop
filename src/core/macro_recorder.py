@@ -277,10 +277,10 @@ class MacroRecorder:
                         self._add_action(action)
             
             self.last_key_time = current_time
-            
-        except AttributeError:
-            pass
-    
+
+        except AttributeError as e:
+            logger.warning(f"키 입력 녹화 중 속성 오류 (키 이벤트 누락 가능): {e}")
+
     def _on_key_release(self, key):
         """키보드 놓음 이벤트"""
         if not self.is_recording:
@@ -314,9 +314,9 @@ class MacroRecorder:
                             self._add_action(action)
                             self.current_keys.clear()
         
-        except AttributeError:
-            pass
-    
+        except AttributeError as e:
+            logger.warning(f"키 해제 녹화 중 속성 오류 (키 이벤트 누락 가능): {e}")
+
     def _add_action(self, action: Dict):
         """액션 추가"""
         # 중복 액션 필터링
@@ -350,7 +350,10 @@ class MacroRecorder:
         
         # 콜백 호출
         if self.on_action_recorded:
-            self.on_action_recorded(action)
+            try:
+                self.on_action_recorded(action)
+            except Exception as e:
+                logger.error(f"액션 녹화 콜백 호출 오류: {e}", exc_info=True)
     
     def _should_filter_action(self, action: Dict) -> bool:
         """액션 필터링 (중복 제거)"""
