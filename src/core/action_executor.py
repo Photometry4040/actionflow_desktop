@@ -492,7 +492,7 @@ class ActionExecutor:
             time.sleep(seconds)
             return True
         except Exception as e:
-            print(f"지연 시간 오류: {str(e)}")
+            logger.error(f"지연 시간 오류: {str(e)}", exc_info=True)
             return False
     
     def _execute_clipboard_copy(self, parameters: Dict) -> bool:
@@ -502,7 +502,7 @@ class ActionExecutor:
             pyperclip.copy(text)
             return True
         except Exception as e:
-            print(f"클립보드 복사 오류: {str(e)}")
+            logger.error(f"클립보드 복사 오류: {str(e)}", exc_info=True)
             return False
     
     def _execute_clipboard_paste(self, parameters: Dict) -> bool:
@@ -520,7 +520,7 @@ class ActionExecutor:
             
             return True
         except Exception as e:
-            print(f"클립보드 붙여넣기 오류: {str(e)}")
+            logger.error(f"클립보드 붙여넣기 오류: {str(e)}", exc_info=True)
             return False
     
     def _execute_key_combination(self, parameters: Dict) -> bool:
@@ -534,7 +534,7 @@ class ActionExecutor:
 
             return True
         except Exception as e:
-            print(f"키 조합 오류: {str(e)}")
+            logger.error(f"키 조합 오류: {str(e)}", exc_info=True)
             return False
 
     def _execute_key_press(self, parameters: Dict) -> bool:
@@ -805,7 +805,7 @@ class ActionExecutor:
             try:
                 callback(*args)
             except Exception as e:
-                print(f"콜백 호출 오류: {str(e)}")
+                logger.error(f"콜백 호출 오류: {str(e)}", exc_info=True)
     
     def get_execution_status(self) -> Dict:
         """

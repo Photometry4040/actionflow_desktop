@@ -274,5 +274,22 @@ class Config:
         self.data_manager.save_settings(settings)
 
 
-# 전역 설정 인스턴스
-config = Config() 
+# 전역 설정 인스턴스 (Lazy initialization)
+_config_instance = None
+
+
+def _get_config() -> Config:
+    """Config 싱글톤 인스턴스 반환 (최초 접근 시 생성)"""
+    global _config_instance
+    if _config_instance is None:
+        _config_instance = Config()
+    return _config_instance
+
+
+class _LazyConfig:
+    """Config 인스턴스에 대한 Lazy 프록시 - 실제 접근 시에만 초기화"""
+    def __getattr__(self, name):
+        return getattr(_get_config(), name)
+
+
+config = _LazyConfig()

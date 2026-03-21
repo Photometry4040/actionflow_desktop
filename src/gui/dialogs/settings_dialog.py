@@ -352,7 +352,7 @@ class SettingsDialog:
         
         # 고급 설정
         self.auto_backup_var.set(self.current_settings.auto_backup)
-        self.backup_interval_var.set(self._get_interval_display(self.current_settings.backup_interval))
+        self.backup_interval_var.set(self._get_days_interval_display(self.current_settings.backup_interval))
         self.backup_retention_var.set(self._get_retention_display(self.current_settings.backup_retention))
         self.developer_mode_var.set(self.current_settings.developer_mode)
         self.experimental_features_var.set(self.current_settings.experimental_features)
@@ -429,7 +429,7 @@ class SettingsDialog:
                 font_size=self._get_font_size_value(self.font_size_var.get()),
                 window_size=self.window_size_var.get(),
                 auto_backup=self.auto_backup_var.get(),
-                backup_interval=self._get_interval_value(self.backup_interval_var.get()),
+                backup_interval=self._get_days_interval_value(self.backup_interval_var.get()),
                 backup_retention=self._get_retention_value(self.backup_retention_var.get()),
                 developer_mode=self.developer_mode_var.get(),
                 experimental_features=self.experimental_features_var.get()
@@ -477,6 +477,25 @@ class SettingsDialog:
         language_map = {"한국어": "ko", "English": "en"}
         return language_map.get(display, "ko")
     
+    def _get_days_interval_display(self, days: int) -> str:
+        """일 단위 값을 표시 형식으로 변환 (backup_interval용)"""
+        if days < 7:
+            return f"{days}일"
+        elif days < 30:
+            return f"{days // 7}주"
+        else:
+            return f"{days // 30}개월"
+
+    def _get_days_interval_value(self, display: str) -> int:
+        """일 단위 표시값을 실제값으로 변환 (backup_interval용)"""
+        if "개월" in display:
+            return int(display.replace("개월", "")) * 30
+        elif "주" in display:
+            return int(display.replace("주", "")) * 7
+        elif "일" in display:
+            return int(display.replace("일", ""))
+        return 7  # 기본값 7일
+
     def _get_interval_value(self, display: str) -> int:
         """간격 표시값을 실제값으로 변환"""
         if "초" in display:
